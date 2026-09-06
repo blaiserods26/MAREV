@@ -5,6 +5,7 @@ export type InstructionType =
   | 'COND_BRANCH'
   | 'UNCOND_BRANCH'
   | 'CALL'
+  | 'INDIRECT_CALL'
   | 'RET'
   | 'INDIRECT_JUMP'
   | 'DATA'
@@ -94,14 +95,75 @@ export interface CFG {
   unreachable_blocks: string[];
 }
 
-export interface BinaryProject {
-  filename: string;
-  architecture: ArchitectureType;
-  format: string;
-  sections: Section[];
-  functions: Record<string, FunctionSummary>;
-  entry_point?: number | null;
-  global_references?: Reference[];
+export interface DominatorTreeInfo {
+  entry_block_id: string;
+  dominators: Record<string, string[]>;
+  immediate_dominators: Record<string, string | null>;
+  dominance_frontiers: Record<string, string[]>;
+}
+
+export interface BackEdge {
+  source: string;
+  target: string;
+}
+
+export interface NaturalLoop {
+  header: string;
+  tail: string;
+  blocks: string[];
+}
+
+export interface LoopAnalysisResult {
+  back_edges: BackEdge[];
+  loops: NaturalLoop[];
+  strongly_connected_components: string[][];
+}
+
+export interface FunctionFingerprint {
+  function_name: string;
+  start_address: number;
+  instruction_count: number;
+  basic_block_count: number;
+  edge_count: number;
+  branch_count: number;
+  call_count: number;
+  return_count: number;
+  loop_count: number;
+  cyclomatic_complexity: number;
+  called_functions: string[];
+  imported_apis: string[];
+  string_references: string[];
+  constants: number[];
+  instruction_category_frequencies: Record<string, number>;
+  cfg_hash: string;
+  feature_vector: Record<string, number>;
+}
+
+export interface CallSite {
+  function_name: string;
+  address: number;
+}
+
+export interface FunctionCallInfo {
+  function_name: string;
+  callers: CallSite[];
+  callees: CallSite[];
+}
+
+export interface FunctionAnalysisReport {
+  function: string;
+  start_address: string | null;
+  end_address: string | null;
+  instruction_count: number;
+  basic_block_count: number;
+  edge_count: number;
+  cyclomatic_complexity: number;
+  unreachable_blocks: string[];
+  dominators: DominatorTreeInfo;
+  loops: LoopAnalysisResult;
+  callers: CallSite[];
+  callees: CallSite[];
+  fingerprint?: FunctionFingerprint | null;
 }
 
 export interface AnalysisResponse {
@@ -120,4 +182,5 @@ export interface CallGraphEdge {
 export interface CallGraph {
   nodes: string[];
   edges: CallGraphEdge[];
+  relationships?: Record<string, FunctionCallInfo>;
 }

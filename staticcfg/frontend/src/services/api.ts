@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { AnalysisResponse, FunctionSummary, CFG, CallGraph } from '../types/cfg';
+import { AnalysisResponse, FunctionSummary, CFG, CallGraph, FunctionAnalysisReport, FunctionFingerprint } from '../types/cfg';
 
 const API_BASE = '/api';
 
@@ -30,6 +30,18 @@ export async function getFunctions(params?: {
 export async function getFunctionCFG(functionName: string): Promise<CFG> {
   const encoded = encodeURIComponent(functionName);
   const res = await axios.get<CFG>(`${API_BASE}/cfg/${encoded}`);
+  return res.data;
+}
+
+export async function getFunctionAnalysis(functionName: string): Promise<FunctionAnalysisReport> {
+  const encoded = encodeURIComponent(functionName);
+  const res = await axios.get<FunctionAnalysisReport>(`${API_BASE}/analysis/${encoded}`);
+  return res.data;
+}
+
+export async function getFunctionFingerprint(functionName: string): Promise<FunctionFingerprint> {
+  const encoded = encodeURIComponent(functionName);
+  const res = await axios.get<FunctionFingerprint>(`${API_BASE}/fingerprint/${encoded}`);
   return res.data;
 }
 

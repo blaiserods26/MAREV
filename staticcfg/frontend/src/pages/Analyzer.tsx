@@ -171,10 +171,13 @@ export const Analyzer: React.FC = () => {
             </ReactFlowProvider>
           </div>
 
-          {/* Bottom Instruction Inspector Panel */}
+          {/* Bottom Instruction Inspector & Raw Assembly Panel */}
           <InstructionPanel
             block={selectedBlock}
+            cfg={cfg}
             functionName={selectedFunction}
+            onSelectBlock={(block) => setSelectedBlock(block)}
+            onSelectFunction={(name) => setSelectedFunction(name)}
             onClose={() => setSelectedBlock(null)}
           />
         </div>
@@ -216,7 +219,7 @@ export const Analyzer: React.FC = () => {
             }}
           >
             <div style={{ padding: '12px 16px', backgroundColor: 'var(--bg-header)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text-bright)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text-bright)', display: 'flex', alignItems: 'center', gap: '8px', fontFamily: 'var(--font-mono)' }}>
                 <GitFork size={16} color="var(--color-accent)" /> Program Call Graph ({callGraphData?.edges.length || 0} direct calls)
               </span>
               <button onClick={() => setIsCallGraphOpen(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>

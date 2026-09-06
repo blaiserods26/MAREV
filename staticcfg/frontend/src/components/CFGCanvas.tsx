@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import {
   ReactFlow,
   Background,
@@ -45,11 +45,10 @@ function getDagreLayout(nodes: Node[], edges: Edge[], rankdir = 'TB') {
   dagreGraph.setGraph({ rankdir, nodesep: 60, ranksep: 80 });
 
   nodes.forEach((node) => {
-    // Estimate height based on instruction count
     const block = (node.data as any)?.block as BasicBlock;
     const instCount = block?.instructions?.length || 1;
-    const height = Math.min(240, 40 + Math.min(8, instCount) * 20 + 20);
-    dagreGraph.setNode(node.id, { width: 260, height });
+    const height = Math.min(260, 40 + Math.min(10, instCount) * 19 + 20);
+    dagreGraph.setNode(node.id, { width: 280, height });
   });
 
   edges.forEach((edge) => {
@@ -62,12 +61,12 @@ function getDagreLayout(nodes: Node[], edges: Edge[], rankdir = 'TB') {
     const nodeWithPosition = dagreGraph.node(node.id);
     const block = (node.data as any)?.block as BasicBlock;
     const instCount = block?.instructions?.length || 1;
-    const height = Math.min(240, 40 + Math.min(8, instCount) * 20 + 20);
+    const height = Math.min(260, 40 + Math.min(10, instCount) * 19 + 20);
 
     return {
       ...node,
       position: {
-        x: nodeWithPosition.x - 130,
+        x: nodeWithPosition.x - 140,
         y: nodeWithPosition.y - height / 2,
       },
     };
@@ -123,7 +122,7 @@ export const CFGCanvas: React.FC<CFGCanvasProps> = ({
           width: 14,
           height: 14,
         },
-        labelStyle: { fill: color, fontWeight: 600, fontSize: 11 },
+        labelStyle: { fill: color, fontWeight: 600, fontSize: 11, fontFamily: 'var(--font-mono)' },
         labelBgStyle: { fill: '#161b22', fillOpacity: 0.9, rx: 4, ry: 4 },
         labelBgPadding: [4, 2] as [number, number],
       };
@@ -172,7 +171,7 @@ export const CFGCanvas: React.FC<CFGCanvasProps> = ({
         <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-main)' }}>
           No Function Selected
         </div>
-        <div style={{ fontSize: '12px' }}>
+        <div style={{ fontSize: '12px', fontFamily: 'var(--font-mono)' }}>
           Select a function from the sidebar to view its Control Flow Graph.
         </div>
       </div>
@@ -196,7 +195,40 @@ export const CFGCanvas: React.FC<CFGCanvasProps> = ({
         <Background color="#21262d" gap={16} size={1} />
         <Controls showInteractive={false} />
 
+        {/* Custom Toolbar Controls */}
         <Panel position="top-right" style={{ display: 'flex', gap: '6px' }}>
+          <button
+            onClick={() => zoomIn({ duration: 200 })}
+            title="Zoom In"
+            style={{
+              background: 'var(--bg-panel)',
+              border: '1px solid var(--border-color)',
+              color: 'var(--text-main)',
+              padding: '6px 8px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            <ZoomIn size={14} />
+          </button>
+          <button
+            onClick={() => zoomOut({ duration: 200 })}
+            title="Zoom Out"
+            style={{
+              background: 'var(--bg-panel)',
+              border: '1px solid var(--border-color)',
+              color: 'var(--text-main)',
+              padding: '6px 8px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            <ZoomOut size={14} />
+          </button>
           <button
             onClick={() => fitView({ duration: 200 })}
             title="Fit View"
@@ -212,6 +244,7 @@ export const CFGCanvas: React.FC<CFGCanvasProps> = ({
               gap: '6px',
               fontSize: '11px',
               fontWeight: 500,
+              fontFamily: 'var(--font-mono)',
             }}
           >
             <Maximize2 size={13} /> Fit View
@@ -231,6 +264,7 @@ export const CFGCanvas: React.FC<CFGCanvasProps> = ({
               gap: '6px',
               fontSize: '11px',
               fontWeight: 500,
+              fontFamily: 'var(--font-mono)',
             }}
           >
             <RefreshCw size={13} /> Reset Layout
