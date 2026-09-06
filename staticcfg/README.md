@@ -1,124 +1,98 @@
-# StaticCFG — x86-64 Assembly Control Flow Graph Generator
+# StaticCFG — Production-Quality x86-64 Disassembly & Control Flow Graph Static Analyzer
 
-StaticCFG is a high-performance, web-based static analysis tool that parses **x86-64 objdump-style disassembly files (`.asm`)** and deterministically generates interactive **Control Flow Graphs (CFG)** for functions.
-
-![StaticCFG Architecture](https://img.shields.io/badge/Architecture-x86--64-blue)
-![Backend](https://img.shields.io/badge/Backend-FastAPI%20%7C%20Python%203.11+-green)
-![Frontend](https://img.shields.io/badge/Frontend-React%20%7C%20TypeScript%20%7C%20ReactFlow-cyan)
+**StaticCFG** is a high-performance static analysis platform designed to process x86-64 `objdump`-style `.asm` disassembly files, recover function boundaries, construct deterministic Control Flow Graphs (CFGs), execute static structural analysis, and predict function identities in stripped binaries.
 
 ---
 
-## 1. Overview
+## Architecture & System Overview
 
-StaticCFG processes disassembly files produced by `objdump -d` (elf64-x86-64 format) without executing code or calling AI models. Control flow graphs are built 100% deterministically using classic compiler basic-block leader analysis.
-
-### Core Analysis Pipeline
+StaticCFG follows a clean, decoupled monorepo architecture where architecture-specific disassembly parsing is completely isolated from downstream basic block partitioning, flow graph construction, static analysis, and function identity matching.
 
 ```text
-ASM File (.asm)
-   ↓
-Line-Oriented Stream Parser
-   ↓
-Instructions & Functions
-   ↓
-Branch & Control-Flow Classifier
-   ↓
-Basic-Block Leaders
-   ↓
-Basic Block Partitioning
-   ↓
-CFG Edge Generation (true / false / jump / fallthrough / return / indirect)
-   ↓
-Graph Layout & Interactive React Flow Visualization
+                                  +---------------------------------------+
+                                  |         objdump `.asm` File           |
+                                  +---------------------------------------+
+                                                      |
+                                                      v
+                                  +---------------------------------------+
+                                  |         BaseDisassemblyParser         |
+                                  |            (app/parser/)              |
+                                  +---------------------------------------+
+                                                      |
+                                                      v
+                                  +---------------------------------------+
+                                  |     Intermediate Representation (IR)  |
+                                  |     (BinaryProject, Function, etc.)   |
+                                  +---------------------------------------+
+                                                      |
+                                       +--------------+--------------+
+                                       |                             |
+                                       v                             v
+                        +----------------------------+  +----------------------------+
+                        |  FunctionRecoveryEngine    |  |     BasicBlockEngine       |
+                        |      (app/recovery/)       |  |    (app/basic_block/)      |
+                        +----------------------------+  +----------------------------+
+                                                                     |
+                                                                     v
+                                                        +----------------------------+
+                                                        |         CFGBuilder         |
+                                                        |        (app/cfg/)          |
+                                                        +----------------------------+
+                                                                     |
+                                       +-----------------------------+-----------------------------+
+                                       |                             |                             |
+                                       v                             v                             v
+                        +----------------------------+  +----------------------------+  +----------------------------+
+                        |      Analysis Engine       |  | Function ID Interface      |  |       FastAPI & UI         |
+                        |     (app/analysis/)        |  |    (app/function_id/)      |  |    (app/api & frontend)    |
+                        +----------------------------+  +----------------------------+  +----------------------------+
 ```
 
 ---
 
-## 2. Basic Block Construction Algorithm
+## Core IR & Data Models
 
-Control Flow Graphs are constructed per function using standard leader detection:
+All static analysis engines and API endpoints operate exclusively on strongly-typed Intermediate Representation (IR) models (`app/ir/models.py`):
 
-1. **Leader Detection**:
-   - The first instruction of the function is a leader.
-   - The target of any direct branch (conditional or unconditional jump) inside the function is a leader.
-   - The instruction immediately following a conditional branch, unconditional jump, or return is a leader.
-
-2. **Block Partitioning**:
-   - Instructions from one leader up to (and including) a terminating control-flow instruction or the next leader form a **BasicBlock** (`B0`, `B1`, `B2`, ...).
-
-3. **Edge Typing**:
-   - `true`: Branch-taken edge for conditional jump (`je`, `jne`, `jl`, etc.).
-   - `false`: Branch-not-taken (fallthrough) edge for conditional jump.
-   - `jump`: Target edge for unconditional jump (`jmp`).
-   - `fallthrough`: Sequential flow after non-branching instructions or calls.
-   - `return`: Edge from `ret` to synthetic `EXIT` node.
-   - `indirect`: Edge from indirect branch (`jmp *%rax`) to synthetic `UNKNOWN` node.
+1. **`BinaryProject`**: Top-level container representing an analyzed disassembly or binary file, metadata, sections, function index, global cross-references, and call graph.
+2. **`Section`**: Memory section representation (`.text`, `.rodata`, `.data`, `.bss`) with memory bounds and instruction streams.
+3. **`Function`**: Recovered function representation containing entry address, bounds, calling convention info, instruction list, basic blocks, and CFG.
+4. **`Instruction`**: Normalized assembly instruction model with address, raw bytes, mnemonic, operands, branch targets, control flow classification (`COND_BRANCH`, `UNCOND_BRANCH`, `CALL`, `RET`, `INDIRECT_JUMP`, `NORMAL`, `DATA`, `NOP`), comments, and cross-references.
+5. **`BasicBlock`**: Basic block container bounded by compiler leader rules, storing instruction lists, predecessor/successor block IDs, and terminator types.
+6. **`CFG`**: Control Flow Graph for a function, maintaining entry block ID, exit block IDs, node dictionary, flow edges, cyclomatic complexity metric, and reachability info.
+7. **`CFGEdge`**: Directed control flow edge with type classification (`FALLTHROUGH`, `TRUE_BRANCH`, `FALSE_BRANCH`, `UNCOND_JUMP`, `CALL`, `RETURN`, `INDIRECT`, `UNKNOWN`).
+8. **`Reference`**: Cross-reference model tracking code and data references (`CALL`, `JUMP`, `DATA`, `STRING`) with source address, target address, and target symbol.
 
 ---
 
-## 3. Repository Structure
+## Development Phases & Roadmap
 
-```text
-staticcfg/
-├── backend/
-│   ├── app/
-│   │   ├── main.py              # FastAPI entry point & CORS
-│   │   ├── api/                 # API routers (upload, functions, cfg)
-│   │   ├── parser/              # Line-by-line objdump parser
-│   │   ├── cfg/                 # Leader detection, basic blocks, edge building
-│   │   ├── analysis/            # Cyclomatic complexity, reachability, call graph
-│   │   └── models/              # Pydantic schemas
-│   ├── tests/                   # Pytest suite
-│   ├── requirements.txt
-│   └── README.md
-│
-├── frontend/
-│   ├── src/
-│   │   ├── components/          # CFGCanvas, CFGNode, FunctionList, InstructionPanel, Toolbar, UploadPanel
-│   │   ├── pages/               # Analyzer.tsx main view
-│   │   ├── services/            # Axios API client
-│   │   ├── types/               # TypeScript models
-│   │   └── index.css            # Dark IDE reverse-engineering theme
-│   ├── package.json
-│   └── README.md
-│
-├── sample/
-│   └── validator.asm            # Benchmark sample disassembly (126,741 lines)
-│
-├── README.md
-└── .gitignore
-```
+| Phase | Status | Focus & Key Deliverables |
+| :--- | :--- | :--- |
+| **Phase 1: Foundation & Data Models** | **Completed** | Monorepo structure, core IR data models (`BinaryProject`, `Section`, `Function`, `Instruction`, `BasicBlock`, `CFG`, `CFGEdge`, `Reference`), abstract module interfaces, logging, configuration, pytest suite with `validator.asm` fixture, and Vite frontend integration. |
+| **Phase 2: Recovery & Advanced CFG** | *Upcoming* | Deep function boundary refinement, indirect jump target resolution (switch tables, jump tables), and exception handling block support. |
+| **Phase 3: Analysis & Metrics** | *Upcoming* | Data flow analysis, def-use chains, dominant block analysis, loop detection, and advanced reachability metrics. |
+| **Phase 4: Function Identification** | *Upcoming* | Opcode n-gram fingerprinting, CFG graph isomorphism hashing, FLIRT-style library function signature matching for stripped binaries. |
+| **Phase 5: Interactive UI & Visualizations** | *Upcoming* | Expanded React Flow layout options, interactive call graph navigation, and side-by-side assembly decompilation view. |
 
 ---
 
-## 4. Quick Start
+## Quick Start & Verification
 
-### Running the Backend (Python / FastAPI)
+### Running Backend & Unit Tests
 
 ```bash
-cd staticcfg/backend
+cd backend
 pip install -r requirements.txt
-python -m pytest tests          # Run unit tests
+pytest
 uvicorn app.main:app --port 8000 --reload
 ```
 
-The backend starts at `http://localhost:8000`. It automatically preloads `sample/validator.asm` on startup if present.
-
-### Running the Frontend (React / Vite)
+### Running Frontend
 
 ```bash
-cd staticcfg/frontend
+cd frontend
 npm install
 npm run dev
+npm run build
 ```
-
-Open `http://localhost:3000` in your browser.
-
----
-
-## 5. Key Features
-
-- **High-Performance Large File Handling**: Parsed 126,741-line `validator.asm` file (1,135 functions) in ~1.2s line-by-line.
-- **Interactive CFG Visualizer**: Automatic hierarchical graph layout via Dagre, zoom/pan/fit controls, custom node styling.
-- **Deep Inspection**: Clicking any basic block inspects full instruction table (address, raw bytes, mnemonic, operands, comments).
-- **Static Analysis Metrics**: Displays function Cyclomatic Complexity (\( M = E - N + 2P \)), highlights unreachable blocks, and extracts program call graphs.
