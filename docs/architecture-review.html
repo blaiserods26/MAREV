@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Architecture Review — StaticCFG</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+    </script>
+    <style>
+      .seam { stroke-dasharray: 4 4; }
+      .leak { stroke: #dc2626; }
+      .deep-card { background: linear-gradient(135deg, #0f172a, #1e293b); }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans antialiased selection:bg-indigo-100 selection:text-indigo-900">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
+      <!-- Header -->
+      <header class="border-b border-stone-200 pb-8">
+        <div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+          <div>
+            <div class="text-xs uppercase tracking-widest text-slate-500 font-semibold mb-1">Architecture Review</div>
+            <h1 class="text-3xl font-serif font-bold text-slate-900">StaticCFG Codebase</h1>
+            <p class="text-sm text-slate-500 mt-1">Deepening opportunities for x86-64 CFG recovery and static analysis</p>
+          </div>
+          <div class="text-xs text-slate-400 font-mono">2026-09-22</div>
+        </div>
+
+        <!-- Legend -->
+        <div class="mt-6 pt-4 border-t border-stone-200/60 flex flex-wrap items-center gap-6 text-xs text-slate-600">
+          <div class="flex items-center gap-2">
+            <span class="inline-block w-4 h-3 rounded border border-slate-400 bg-white"></span>
+            <span>Module</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="inline-block w-4 h-0 border-t-2 border-dashed border-slate-400"></span>
+            <span>Seam</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="inline-block w-4 h-0 border-t-2 border-red-500"></span>
+            <span>Leakage</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="inline-block w-4 h-3 rounded bg-slate-900"></span>
+            <span>Deep Module</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- Candidates Section -->
+      <section id="candidates" class="space-y-12">
+        <!-- Candidate 1 -->
+        <article id="candidate-1" class="rounded-xl border border-stone-200 bg-white p-6 shadow-sm space-y-6">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-2">
+            <h2 class="text-xl font-serif font-bold text-slate-900">1. Collapse Flow Graph construction into a deep module</h2>
+            <div class="flex items-center gap-2">
+              <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">Strong</span>
+              <span class="px-2 py-0.5 rounded text-xs font-mono bg-stone-100 text-stone-600">in-process</span>
+            </div>
+          </div>
+
+          <div class="font-mono text-xs text-slate-500 bg-stone-50 rounded-lg p-3 border border-stone-200/80 space-y-0.5">
+            <div>staticcfg/backend/app/basic_block/base.py</div>
+            <div>staticcfg/backend/app/basic_block/engine.py</div>
+            <div>staticcfg/backend/app/cfg/base.py</div>
+            <div>staticcfg/backend/app/cfg/builder.py</div>
+            <div>staticcfg/backend/app/analysis/complexity.py</div>
+            <div>staticcfg/backend/app/analysis/reachability.py</div>
+          </div>
+
+          <!-- Side-by-side Before/After Visualization -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Before -->
+            <div class="rounded-lg border border-stone-200 bg-stone-50/50 p-4 flex flex-col justify-between">
+              <div class="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-3">Before: 6 shallow modules &amp; phantom seams</div>
+              <div class="rounded border border-stone-200 bg-white p-2 min-h-[300px] flex items-center justify-center">
+                <pre class="mermaid text-xs">
+                  flowchart TD
+                    Caller([Caller / Test]) -->|uses| BB[BasicBlockEngine]
+                    Caller -->|uses| CFG[CFGBuilder]
+                    CFG -.seam.-> BB
+                    CFG -.leak.-> CC[complexity.py]
+                    CFG -.leak.-> RC[reachability.py]
+                    CFG -.inline-import.-> LP[loops.py]
+                    classDef leak stroke:#dc2626,stroke-width:2px;
+                    class CC,RC,LP leak;
+                </pre>
+              </div>
+            </div>
+
+            <!-- After -->
+            <div class="rounded-lg border border-slate-800 bg-slate-900 p-4 text-white flex flex-col justify-between">
+              <div class="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-3">After: 1 deep FlowGraphBuilder module</div>
+              <div class="rounded border border-slate-700 bg-slate-950 p-4 min-h-[300px] flex flex-col justify-between">
+                <div class="border border-emerald-500/40 rounded bg-emerald-950/20 p-2.5 text-center">
+                  <div class="text-xs font-mono text-emerald-400 font-bold">FlowGraphBuilder.build(function) -> CFG</div>
+                  <div class="text-[10px] text-slate-400 mt-0.5">Small Interface: 1 method, 1 parameter</div>
+                </div>
+                <div class="my-3 border-t border-dashed border-slate-700 relative">
+                  <span class="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-slate-950 px-2 text-[10px] font-mono text-slate-500 uppercase tracking-widest">Single Seam</span>
+                </div>
+                <div class="rounded border border-slate-800 bg-slate-900/90 p-3 space-y-1.5 text-xs text-slate-300">
+                  <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Consolidated Implementation:</div>
+                  <div class="flex items-center gap-2"><span class="text-emerald-400">✓</span> Leader detection &amp; block partitioning</div>
+                  <div class="flex items-center gap-2"><span class="text-emerald-400">✓</span> Strict branch/fallthrough routing</div>
+                  <div class="flex items-center gap-2"><span class="text-emerald-400">✓</span> Reachability &amp; cyclomatic complexity</div>
+                  <div class="flex items-center gap-2"><span class="text-emerald-400">✓</span> Natural loop back-edge detection</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2 pt-2 text-sm text-slate-700">
+            <div><strong class="font-semibold text-slate-900">Problem:</strong> CFG construction is spread across six shallow modules with hypothetical single-adapter seams, leaky helper functions, and an inline import for back-edge detection.</div>
+            <div><strong class="font-semibold text-slate-900">Solution:</strong> Consolidate leader detection, block partitioning, edge classification, reachability traversal, and complexity calculation behind a single deep flow graph builder module.</div>
+          </div>
+
+          <div class="border-t border-stone-200/70 pt-3">
+            <div class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Wins</div>
+            <ul class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-700">
+              <li class="flex items-center gap-1.5"><span class="text-emerald-600 font-bold">✓</span> leverage: one interface returns complete CFG</li>
+              <li class="flex items-center gap-1.5"><span class="text-emerald-600 font-bold">✓</span> locality: graph invariants stay in one module</li>
+              <li class="flex items-center gap-1.5"><span class="text-emerald-600 font-bold">✓</span> tests hit one interface, not partitions</li>
+              <li class="flex items-center gap-1.5"><span class="text-emerald-600 font-bold">✓</span> delete 2 single-adapter phantom seams</li>
+              <li class="flex items-center gap-1.5"><span class="text-emerald-600 font-bold">✓</span> delete 2 shallow helper modules</li>
+              <li class="flex items-center gap-1.5"><span class="text-emerald-600 font-bold">✓</span> eliminate circular-import inline patching</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Candidate 2 -->
+        <article id="candidate-2" class="rounded-xl border border-stone-200 bg-white p-6 shadow-sm space-y-6">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-2">
+            <h2 class="text-xl font-serif font-bold text-slate-900">2. Deepen AnalysisEngine to seal structural analysis leakage in the HTTP layer</h2>
+            <div class="flex items-center gap-2">
+              <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">Strong</span>
+              <span class="px-2 py-0.5 rounded text-xs font-mono bg-stone-100 text-stone-600">in-process</span>
+            </div>
+          </div>
+
+          <div class="font-mono text-xs text-slate-500 bg-stone-50 rounded-lg p-3 border border-stone-200/80 space-y-0.5">
+            <div>staticcfg/backend/app/analysis/engine.py</div>
+            <div>staticcfg/backend/app/api/cfg.py</div>
+            <div>staticcfg/backend/app/analysis/dominators.py</div>
+            <div>staticcfg/backend/app/analysis/loops.py</div>
+            <div>staticcfg/backend/app/analysis/models.py</div>
+          </div>
+
+          <!-- Side-by-side Before/After Visualization -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Before -->
+            <div class="rounded-lg border border-stone-200 bg-stone-50/50 p-4 flex flex-col justify-between">
+              <div class="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-3">Before: Analysis leaks across HTTP seam</div>
+              <div class="rounded border border-stone-200 bg-white p-2 min-h-[300px] flex items-center justify-center">
+                <pre class="mermaid text-xs">
+                  sequenceDiagram
+                    autonumber
+                    actor Client as Browser UI
+                    participant API as api/cfg.py
+                    participant Store as SessionStore
+                    participant Dom as dominators.py
+                    participant Loop as loops.py
+                    Client->>API: GET /analysis/{fn}
+                    API->>Store: get_analysis()
+                    Note over API,Loop: Structural analysis leaks into HTTP handler
+                    API->>Dom: compute_dominators(cfg)
+                    API->>Loop: analyze_loops(cfg)
+                    API->>API: hand-stitch dict response
+                    API-->>Client: 200 JSON
+                </pre>
+              </div>
+            </div>
+
+            <!-- After -->
+            <div class="rounded-lg border border-slate-800 bg-slate-900 p-4 text-white flex flex-col justify-between">
+              <div class="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-3">After: Clean seam, pre-computed reports</div>
+              <div class="rounded border border-slate-700 bg-slate-950 p-2 min-h-[300px] flex items-center justify-center">
+                <pre class="mermaid text-xs">
+                  sequenceDiagram
+                    autonumber
+                    actor Client as Browser UI
+                    participant API as api/cfg.py
+                    participant Engine as AnalysisEngine (Deep)
+                    Client->>API: GET /analysis/{fn}
+                    API->>Engine: get_report(fn)
+                    Note over Engine: Pre-computed during upload pipeline:<br/>CFGs + Dominators + Loops + IDs
+                    Engine-->>API: FunctionAnalysisReport
+                    API-->>Client: 200 Typed Response
+                </pre>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2 pt-2 text-sm text-slate-700">
+            <div><strong class="font-semibold text-slate-900">Problem:</strong> AnalysisEngine omits dominator and loop calculations, forcing the HTTP handler to perform ad-hoc graph analysis and manual dictionary stitching on every request.</div>
+            <div><strong class="font-semibold text-slate-900">Solution:</strong> Deepen AnalysisEngine to compute dominators and natural loops during pipeline analysis, returning a typed FunctionAnalysisReport directly.</div>
+          </div>
+
+          <div class="border-t border-stone-200/70 pt-3">
+            <div class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Wins</div>
+            <ul class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-700">
+              <li class="flex items-center gap-1.5"><span class="text-emerald-600 font-bold">✓</span> locality: structural analysis stays in engine</li>
+              <li class="flex items-center gap-1.5"><span class="text-emerald-600 font-bold">✓</span> seam sealed: HTTP handler stops recomputing</li>
+              <li class="flex items-center gap-1.5"><span class="text-emerald-600 font-bold">✓</span> leverage: one analysis pass serves all callers</li>
+              <li class="flex items-center gap-1.5"><span class="text-emerald-600 font-bold">✓</span> eliminate manual dictionary assembly in API</li>
+              <li class="flex items-center gap-1.5"><span class="text-emerald-600 font-bold">✓</span> tests exercise full analysis through engine</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Candidate 3 -->
+        <article id="candidate-3" class="rounded-xl border border-stone-200 bg-white p-6 shadow-sm space-y-6">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-2">
+            <h2 class="text-xl font-serif font-bold text-slate-900">3. Collapse disassembly parsing and purge pass-through builders</h2>
+            <div class="flex items-center gap-2">
+              <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">Worth exploring</span>
+              <span class="px-2 py-0.5 rounded text-xs font-mono bg-stone-100 text-stone-600">in-process</span>
+            </div>
+          </div>
+
+          <div class="font-mono text-xs text-slate-500 bg-stone-50 rounded-lg p-3 border border-stone-200/80 space-y-0.5">
+            <div>staticcfg/backend/app/parser/base.py</div>
+            <div>staticcfg/backend/app/parser/function.py</div>
+            <div>staticcfg/backend/app/parser/section.py</div>
+            <div>staticcfg/backend/app/parser/asm_parser.py</div>
+          </div>
+
+          <!-- Mass Diagram: Interface vs Implementation -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Before: Layered Shallowness -->
+            <div class="rounded-lg border border-stone-200 bg-stone-50/50 p-4 flex flex-col justify-between">
+              <div class="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-3">Before: 3 shallow wrapper modules</div>
+              <div class="space-y-2 py-4">
+                <div class="rounded border border-stone-300 bg-white p-2.5 text-center text-xs font-mono text-slate-600">
+                  BaseDisassemblyParser <span class="text-[10px] text-amber-600">(1-adapter phantom seam)</span>
+                </div>
+                <div class="text-center text-slate-400 text-xs">↓ calls</div>
+                <div class="rounded border border-stone-300 bg-white p-2.5 text-center text-xs font-mono text-slate-600">
+                  ASMParser (Line-by-line regex scanner)
+                </div>
+                <div class="text-center text-slate-400 text-xs">↓ delegates to</div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div class="rounded border border-stone-300 bg-white p-2 text-center text-xs font-mono text-slate-600">
+                    SectionBuilder <span class="block text-[10px] text-slate-400">23 lines, thin list append</span>
+                  </div>
+                  <div class="rounded border border-stone-300 bg-white p-2 text-center text-xs font-mono text-slate-600">
+                    FunctionBuilder <span class="block text-[10px] text-slate-400">25 lines, thin list append</span>
+                  </div>
+                </div>
+              </div>
+              <div class="text-[11px] text-red-600 font-mono text-center">Fails deletion test: deleting builders simplifies code</div>
+            </div>
+
+            <!-- After: Single Deep Parser -->
+            <div class="rounded-lg border border-slate-800 bg-slate-900 p-4 text-white flex flex-col justify-between">
+              <div class="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-3">After: 1 deep ASMParser module</div>
+              <div class="space-y-3 py-4">
+                <div class="border border-emerald-500/40 rounded bg-emerald-950/20 p-2.5 text-center">
+                  <div class="text-xs font-mono text-emerald-400 font-bold">ASMParser.parse(content) -> BinaryProject</div>
+                  <div class="text-[10px] text-slate-400 mt-0.5">Narrow Interface: 1 entry point</div>
+                </div>
+                <div class="rounded border border-slate-800 bg-slate-950 p-3 space-y-1.5 text-xs text-slate-300">
+                  <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Absorbed Internal Implementation:</div>
+                  <div class="flex items-center gap-2"><span class="text-emerald-400">✓</span> Section boundary detection &amp; model emission</div>
+                  <div class="flex items-center gap-2"><span class="text-emerald-400">✓</span> Function boundary detection &amp; model emission</div>
+                  <div class="flex items-center gap-2"><span class="text-emerald-400">✓</span> Direct instantiation of IR models</div>
+                </div>
+              </div>
+              <div class="text-[11px] text-emerald-400 font-mono text-center">Passes deletion test: complexity concentrates in parser</div>
+            </div>
+          </div>
+
+          <div class="space-y-2 pt-2 text-sm text-slate-700">
+            <div><strong class="font-semibold text-slate-900">Problem:</strong> The disassembly parser relies on two shallow list-accumulator builders and a single-adapter abstract base class that fail the deletion test.</div>
+            <div><strong class="font-semibold text-slate-900">Solution:</strong> Absorb FunctionBuilder, SectionBuilder, and BaseDisassemblyParser directly into ASMParser with a simple parse interface.</div>
+          </div>
+
+          <div class="border-t border-stone-200/70 pt-3">
+            <div class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Wins</div>
+            <ul class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-700">
+              <li class="flex items-center gap-1.5"><span class="text-emerald-600 font-bold">✓</span> deletion test: removes 2 pass-through modules</li>
+              <li class="flex items-center gap-1.5"><span class="text-emerald-600 font-bold">✓</span> delete 1 single-adapter hypothetical seam</li>
+              <li class="flex items-center gap-1.5"><span class="text-emerald-600 font-bold">✓</span> locality: parsing and IR construction co-located</li>
+              <li class="flex items-center gap-1.5"><span class="text-emerald-600 font-bold">✓</span> interface shrinks to one parse method</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Candidate 4 -->
+        <article id="candidate-4" class="rounded-xl border border-stone-200 bg-white p-6 shadow-sm space-y-6">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-2">
+            <h2 class="text-xl font-serif font-bold text-slate-900">4. Unify function identification and purge phantom interfaces</h2>
+            <div class="flex items-center gap-2">
+              <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">Worth exploring</span>
+              <span class="px-2 py-0.5 rounded text-xs font-mono bg-stone-100 text-stone-600">in-process</span>
+            </div>
+          </div>
+
+          <div class="font-mono text-xs text-slate-500 bg-stone-50 rounded-lg p-3 border border-stone-200/80 space-y-0.5">
+            <div>staticcfg/backend/app/function_id/base.py</div>
+            <div>staticcfg/backend/app/function_id/pipeline.py</div>
+            <div>staticcfg/backend/app/function_id/similarity.py</div>
+            <div>staticcfg/backend/app/function_id/semantic_classifier.py</div>
+          </div>
+
+          <!-- Side-by-side Before/After Visualization -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Before -->
+            <div class="rounded-lg border border-stone-200 bg-stone-50/50 p-4 flex flex-col justify-between">
+              <div class="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-3">Before: Phantom interface + shallow satellites</div>
+              <div class="rounded border border-stone-200 bg-white p-2 min-h-[280px] flex items-center justify-center">
+                <pre class="mermaid text-xs">
+                  flowchart TD
+                    subgraph Dead Seam
+                      BFM[BaseFunctionMatcher<br/>Unused ABC] -.phantom.- FS[FunctionSignature]
+                    end
+                    Pipe[IdentificationPipeline] --> Sim[similarity.py<br/>Shallow Helper]
+                    Pipe --> SC[semantic_classifier.py<br/>Shallow Helper]
+                    Pipe --> DB[(SignatureDatabase)]
+                    classDef dead stroke:#dc2626,stroke-dasharray: 4 4;
+                    class BFM,FS dead;
+                </pre>
+              </div>
+            </div>
+
+            <!-- After -->
+            <div class="rounded-lg border border-slate-800 bg-slate-900 p-4 text-white flex flex-col justify-between">
+              <div class="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-3">After: 1 deep FunctionIdentifier module</div>
+              <div class="rounded border border-slate-700 bg-slate-950 p-4 min-h-[280px] flex flex-col justify-between">
+                <div class="border border-emerald-500/40 rounded bg-emerald-950/20 p-2.5 text-center">
+                  <div class="text-xs font-mono text-emerald-400 font-bold">FunctionIdentifier.identify(...) -> IdentificationResult</div>
+                  <div class="text-[10px] text-slate-400 mt-0.5">Small Interface: 1 call site per function</div>
+                </div>
+                <div class="my-3 border-t border-dashed border-slate-700 relative">
+                  <span class="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-slate-950 px-2 text-[10px] font-mono text-slate-500 uppercase tracking-widest">Internalized</span>
+                </div>
+                <div class="rounded border border-slate-800 bg-slate-900/90 p-3 space-y-1.5 text-xs text-slate-300">
+                  <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Internalized Responsibilities:</div>
+                  <div class="flex items-center gap-2"><span class="text-emerald-400">✓</span> Structural graph similarity calculations</div>
+                  <div class="flex items-center gap-2"><span class="text-emerald-400">✓</span> Heuristic semantic rule scoring</div>
+                  <div class="flex items-center gap-2"><span class="text-emerald-400">✓</span> Signature database querying &amp; ranking</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2 pt-2 text-sm text-slate-700">
+            <div><strong class="font-semibold text-slate-900">Problem:</strong> Unused phantom interfaces in base.py drift while similarity and semantic classification exist as shallow satellite modules with a single caller.</div>
+            <div><strong class="font-semibold text-slate-900">Solution:</strong> Delete phantom interfaces in base.py and internalize similarity scoring and semantic classification behind a single deep identification module.</div>
+          </div>
+
+          <div class="border-t border-stone-200/70 pt-3">
+            <div class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Wins</div>
+            <ul class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-700">
+              <li class="flex items-center gap-1.5"><span class="text-emerald-600 font-bold">✓</span> delete orphan interfaces from early phase</li>
+              <li class="flex items-center gap-1.5"><span class="text-emerald-600 font-bold">✓</span> locality: matching and scoring stay together</li>
+              <li class="flex items-center gap-1.5"><span class="text-emerald-600 font-bold">✓</span> leverage: callers query one identification interface</li>
+              <li class="flex items-center gap-1.5"><span class="text-emerald-600 font-bold">✓</span> eliminate 2 shallow satellite modules</li>
+            </ul>
+          </div>
+        </article>
+      </section>
+
+      <!-- Top Recommendation Section -->
+      <section id="top-recommendation" class="rounded-xl border-2 border-slate-900 bg-white p-8 shadow-md">
+        <div class="text-xs uppercase tracking-widest text-emerald-600 font-bold mb-1">Top Recommendation</div>
+        <h3 class="text-2xl font-serif font-bold text-slate-900 mb-3">
+          <a href="#candidate-1" class="hover:underline">1. Collapse Flow Graph construction into a deep module</a>
+        </h3>
+        <p class="text-sm text-slate-700 leading-relaxed mb-4">
+          Control Flow Graph construction is the foundational engine of the entire platform: downstream dominator analysis, loop detection, fingerprinting, and UI rendering all depend directly on its invariants. Consolidating leader detection, block partitioning, edge routing, reachability, and complexity behind one deep interface eliminates four shallow modules, closes an inline import leak, and yields the highest leverage for callers and tests.
+        </p>
+        <a href="#candidate-1" class="inline-flex items-center text-xs font-semibold text-indigo-600 hover:text-indigo-800">
+          Jump to candidate card &rarr;
+        </a>
+      </section>
+    </main>
+  </body>
+</html>

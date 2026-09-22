@@ -174,3 +174,64 @@ def test_cfg_validator_asm_fixture(validator_asm_path):
             for edge in cfg.edges:
                 assert edge.source in node_ids
                 assert edge.target in node_ids or edge.target in ("EXIT", "UNKNOWN")
+
+def test_cfg_partition_and_leaders():
+    asm = """
+Disassembly of section .text:
+
+0000000000401000 <func_branch_test>:
+  401000:	83 7d fc 00          	cmpl   $0x0,-0x4(%rbp)
+  401004:	74 05                	je     40100b <func_branch_test+0xb>
+  401006:	b8 01 00 00 00       	mov    $0x1,%eax
+  40100b:	c3                   	ret    
+"""
+    parser = ASMParser()
+    project = parser.parse_content(asm)
+    func = project.functions["func_branch_test"]
+
+    builder = CFGBuilder()
+    leaders = builder.find_leaders(func.instructions)
+    # Entry instruction (401000), branch target (40100b), fallthrough after je (401006)
+    assert 0x401000 in leaders
+    assert 0x40100b in leaders
+    assert 0x401006 in leaders
+
+    blocks = builder.partition(func)
+    assert len(blocks) == 3
+    assert blocks[0].start_address == 0x401000
+    assert blocks[1].start_address == 0x401006
+    assert blocks[2].start_address == 0x40100b
+
+def test_cfg_cyclomatic_complexity_metric():
+    builder = CFGBuilder()
+    # 0 nodes -> default 1
+    assert builder.calculate_cyclomatic_complexity(0, 0) == 1
+    # 3 nodes, 3 edges -> 3 - 3 + 2 = 2
+    assert builder.calculate_cyclomatic_complexity(3, 3) == 2
+    # 5 nodes, 6 edges -> 6 - 5 + 2 = 3
+    assert builder.calculate_cyclomatic_complexity(5, 6) == 3
+
+def test_cfg_back_edge_annotation():
+    asm = """
+Disassembly of section .text:
+
+0000000000401000 <func_loop_annotated>:
+  401000:	31 c0                	xor    %eax,%eax
+  401002:	83 c0 01             	add    $0x1,%eax
+  401005:	83 f8 0a             	cmp    $0xa,%eax
+  401008:	75 f8                	jne    401002 <func_loop_annotated+0x2>
+  40100a:	c3                   	ret    
+"""
+    parser = ASMParser()
+    project = parser.parse_content(asm)
+    func = project.functions["func_loop_annotated"]
+
+    builder = CFGBuilder()
+    cfg = builder.build_cfg(func)
+
+    # Verify that the backward jump edge is annotated as is_back_edge
+    back_edges = [e for e in cfg.edges if e.is_back_edge]
+    assert len(back_edges) == 1
+    assert back_edges[0].source == "B1"
+    assert back_edges[0].target == "B1"
+
