@@ -7,7 +7,8 @@ import { FunctionList } from '../components/FunctionList';
 import { CFGCanvas } from '../components/CFGCanvas';
 import { InstructionPanel } from '../components/InstructionPanel';
 import { UploadPanel } from '../components/UploadPanel';
-import { GitFork, X } from 'lucide-react';
+import { BatchScanModal } from '../components/BatchScanModal';
+import { GitFork, X, ScanSearch } from 'lucide-react';
 
 export const Analyzer: React.FC = () => {
   const [activeFile, setActiveFile] = useState<string | null>(null);
@@ -27,6 +28,7 @@ export const Analyzer: React.FC = () => {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isCallGraphOpen, setIsCallGraphOpen] = useState(false);
   const [callGraphData, setCallGraphData] = useState<CallGraph | null>(null);
+  const [isBatchScanOpen, setIsBatchScanOpen] = useState(false);
 
   // Client-side in-memory CFG cache to make switching functions instantaneous
   const cfgCache = useRef<Map<string, CFG>>(new Map());
@@ -123,6 +125,13 @@ export const Analyzer: React.FC = () => {
 
   return (
     <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Batch Scan Modal */}
+      <BatchScanModal
+        isOpen={isBatchScanOpen}
+        onClose={() => setIsBatchScanOpen(false)}
+        onSelectFunction={(name) => { setSelectedFunction(name); setIsBatchScanOpen(false); }}
+      />
+
       {/* Top Header Toolbar */}
       <Toolbar
         activeFile={activeFile}
@@ -137,6 +146,7 @@ export const Analyzer: React.FC = () => {
         loopCount={cfg ? cfg.edges.filter((e) => e.is_back_edge).length : 0}
         highlightLoops={highlightLoops}
         onToggleHighlightLoops={() => setHighlightLoops(!highlightLoops)}
+        onOpenBatchScan={() => setIsBatchScanOpen(true)}
       />
 
       {/* Main Workspace Layout */}

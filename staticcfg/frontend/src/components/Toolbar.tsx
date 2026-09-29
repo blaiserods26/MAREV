@@ -1,5 +1,5 @@
 import React from 'react';
-import { Upload, GitFork, Activity, AlertTriangle, FileCode, RefreshCw } from 'lucide-react';
+import { Upload, GitFork, Activity, AlertTriangle, FileCode, RefreshCw, ScanSearch } from 'lucide-react';
 
 interface ToolbarProps {
   activeFile: string | null;
@@ -14,6 +14,7 @@ interface ToolbarProps {
   loopCount?: number;
   highlightLoops?: boolean;
   onToggleHighlightLoops?: () => void;
+  onOpenBatchScan?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -29,6 +30,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   loopCount,
   highlightLoops,
   onToggleHighlightLoops,
+  onOpenBatchScan,
 }) => {
   return (
     <header
@@ -137,6 +139,30 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
       {/* Right section: Action Buttons */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <button
+          onClick={onOpenBatchScan}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            backgroundColor: '#1a0a3d',
+            border: '1px solid #6e40c966',
+            color: '#bc8cff',
+            padding: '5px 10px',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '11px',
+            fontWeight: 600,
+            transition: 'background 0.15s, box-shadow 0.15s',
+            boxShadow: '0 0 8px rgba(110,64,201,0.25)',
+          }}
+          title="AI Batch Scan: automatically detect and rename all stripped functions"
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 0 16px rgba(110,64,201,0.6)'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 0 8px rgba(110,64,201,0.25)'; }}
+        >
+          <ScanSearch size={13} color="#bc8cff" /> AI Scan
+        </button>
+
         <button
           onClick={onOpenCallGraph}
           style={{

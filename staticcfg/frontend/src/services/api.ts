@@ -113,4 +113,65 @@ export async function saveAgentApiKey(key: string, value: string): Promise<Agent
   return res.data;
 }
 
+// ── Batch Scan ──────────────────────────────────────────────────
+export interface StrippedFunction {
+  name: string;
+  clean_name: string;
+  already_recovered: boolean;
+  recovered_name: string | null;
+  block_count: number;
+  string_count: number;
+  has_strings: boolean;
+}
 
+export interface BatchScanResult {
+  original_name: string;
+  recovered_name: string;
+  c_prototype: string;
+  confidence: number;
+  semantic_category: string;
+  summary: string;
+}
+
+export interface BatchScanError {
+  function: string;
+  error: string;
+}
+
+export interface BatchScanJob {
+  job_id: string;
+  status: 'running' | 'done' | 'cancelled' | 'cancelling';
+  total: number;
+  completed: number;
+  failed: number;
+  current_function: string | null;
+  results: BatchScanResult[];
+  errors: BatchScanError[];
+  elapsed_seconds: number;
+  progress_pct: number;
+  finished_at: number | null;
+}
+
+export async function getStrippedFunctions(): Promise<{ stripped_count: number; functions: StrippedFunction[] }> {
+  const res = await axios.get(`${API_BASE}/agent/stripped-functions`);
+  return res.data;
+}
+
+export async function startBatchScan(options?: {
+  max_functions?: number;
+  skip_already_recovered?: boolean;
+  priority_with_strings?: boolean;
+}): Promise<{ job_id: string; total: number; status: string; message: string }> {
+  const res = await axios.post(`${API_BASE}/agent/batch-scan`, options || {});
+  return res.data;
+}
+
+export async function getBatchScanStatus(jobId: string): Promise<BatchScanJob> {
+  const res = await axios.get<BatchScanJob>(`${API_BASE}/agent/batch-scan/${jobId}`);
+  return res.data;
+}
+
+export async function cancelBatchScan(jobId: string): Promise<{ job_id: string; status: string }> {
+  const res = await axios.post(`${API_BASE}/agent/batch-scan/${jobId}/cancel`);
+  return res.data;
+}
