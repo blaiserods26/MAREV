@@ -75,8 +75,33 @@ export async function agentIdentifyFunction(functionName: string): Promise<Ident
   return res.data;
 }
 
-export async function getAgentStatus(): Promise<{ status: string; provider: string; is_available: boolean }> {
-  const res = await axios.get<{ status: string; provider: string; is_available: boolean }>(`${API_BASE}/agent/status`);
+export interface AgentProviderOption {
+  id: string;
+  name: string;
+  available: boolean;
+  models?: string[];
+}
+
+export interface AgentStatusResponse {
+  status: string;
+  active_provider: string;
+  is_available: boolean;
+  available_providers: AgentProviderOption[];
+}
+
+export async function getAgentStatus(): Promise<AgentStatusResponse> {
+  const res = await axios.get<AgentStatusResponse>(`${API_BASE}/agent/status`);
   return res.data;
 }
+
+export async function configureAgentProvider(config: {
+  provider: string;
+  model?: string;
+  base_url?: string;
+  api_key?: string;
+}): Promise<AgentStatusResponse> {
+  const res = await axios.post<AgentStatusResponse>(`${API_BASE}/agent/config`, config);
+  return res.data;
+}
+
 

@@ -91,9 +91,16 @@ def test_api_agent_endpoints(analyzed_session):
     assert status_resp.status_code == 200
     status_data = status_resp.json()
     assert status_data["status"] == "ready"
-    assert "provider" in status_data
+    assert "active_provider" in status_data
+    assert len(status_data["available_providers"]) >= 2
 
-    # 2. Test On-Demand Agent Identification
+    # 2. Test Provider Configuration Switching
+    config_resp = client.post("/api/agent/config", json={"provider": "mock"})
+    assert config_resp.status_code == 200
+    config_data = config_resp.json()
+    assert "mock" in config_data["active_provider"]
+
+    # 3. Test On-Demand Agent Identification
     ident_resp = client.post("/api/functions/sub_401000/agent-identify")
     assert ident_resp.status_code == 200
     ident_data = ident_resp.json()
@@ -102,9 +109,10 @@ def test_api_agent_endpoints(analyzed_session):
     assert ident_data["recovered_signature"]["name"] is not None
     assert len(ident_data["recovered_signature"]["parameters"]) >= 1
 
-    # 3. Test 404 on non-existent function
+    # 4. Test 404 on non-existent function
     missing_resp = client.post("/api/functions/non_existent_func/agent-identify")
     assert missing_resp.status_code == 404
+
 
 def test_bottom_up_callee_deduction():
     """
@@ -153,4 +161,29 @@ Disassembly of section .text:
     assert "checksum" in sig.name or "payload" in sig.name or "validate" in sig.name or "verify" in sig.name
     assert "sub_sha256_inner" in sig.nested_callees_analyzed
     assert len(sig.parameters) >= 1
+
+def test_ollama_provider_mocked(monkeypatch):
+    """
+    Tests OllamaProvider response parsing with mocked HTTP responses.
+    """
+    from app.function_id.agent.providers.ollama import OllamaProvider
+    import httpx
+
+    class MockResponse:
+        status_code = 200
+        def json(self):
+            return {
+                "response": '{"name": "ollama_decoded", "return_type": "int", "parameters": [{"name": "ptr", "type_name": "char*"}], "c_prototype": "int ollama_decoded(char *ptr)", "summary": "Decoded via local Ollama", "confidence": 0.89, "reasoning": ["Loop analysis matches"], "nested_callees_analyzed": []}'
+            }
+
+    monkeypatch.setattr(httpx.Client, "post", lambda *args, **kwargs: MockResponse())
+
+    provider = OllamaProvider(model="qwen2.5-coder")
+    result = provider.generate_signature("test assembly prompt")
+
+    assert result["name"] == "ollama_decoded"
+    assert result["return_type"] == "int"
+    assert len(result["parameters"]) == 1
+    assert result["confidence"] == 0.89
+
 

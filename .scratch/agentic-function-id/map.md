@@ -22,6 +22,8 @@ Replace the unimplemented ML interface with an **Agentic AI Function Identificat
 - [04: Function Signature & Semantic Domain Model](file:///c:/Users/blais/Desktop/AI%20Agents/CodetoCFG/.scratch/agentic-function-id/issues/04-signature-schema-and-ir.md): Typed `RecoveredSignature` model with C prototype, parameter locations/types, calling convention, and reasoning.
 - [05: Tracer Bullet: End-to-End On-Demand Agent Signature Recovery](file:///c:/Users/blais/Desktop/AI%20Agents/CodetoCFG/.scratch/agentic-function-id/issues/05-tracer-bullet-agent-signature-recovery.md): Complete vertical slice from disassembly to UI delivering on-demand signature and parameter deduction with deterministic inspection tools and pluggable providers.
 - [06: Nested Subroutine & Callee Code Exploration](file:///c:/Users/blais/Desktop/AI%20Agents/CodetoCFG/.scratch/agentic-function-id/issues/06-nested-subroutine-callee-exploration.md): Recursive callee traversal and bottom-up semantic composition, enabling accurate identification of wrapper and dispatch functions via child subroutine analysis.
+- [07: Air-Gapped Local LLM (Ollama) Support & Provider Settings](file:///c:/Users/blais/Desktop/AI%20Agents/CodetoCFG/.scratch/agentic-function-id/issues/07-air-gapped-local-llm-provider.md): Air-gapped offline LLM provider with runtime provider switcher and local model auto-discovery (`qwen2.5-coder`).
+
 
 
 

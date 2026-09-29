@@ -1,5 +1,7 @@
 import urllib.parse
+from typing import Optional, Dict, Any, List
 from fastapi import APIRouter, HTTPException
+
 from app.ir.models import CFG
 from app.analysis.callgraph import CallGraph
 from app.analysis.dominators import compute_dominators
@@ -137,14 +139,32 @@ def agent_identify_function(function_name: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Agent identification failed: {str(e)}")
 
+from pydantic import BaseModel
+
+class AgentConfigRequest(BaseModel):
+    provider: str
+    model: Optional[str] = None
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+
 @router.get("/agent/status")
 def get_agent_status():
-    from app.function_id.agent.providers import get_default_provider
-    provider = get_default_provider()
-    return {
-        "status": "ready",
-        "provider": provider.name(),
-        "is_available": provider.is_available()
-    }
+    from app.function_id.agent.providers import get_active_provider_info
+    return get_active_provider_info()
+
+@router.post("/agent/config")
+def configure_agent_provider(req: AgentConfigRequest):
+    from app.function_id.agent.providers import set_configured_provider, get_active_provider_info
+    try:
+        set_configured_provider(
+            provider_type=req.provider,
+            model=req.model,
+            base_url=req.base_url,
+            api_key=req.api_key,
+        )
+        return get_active_provider_info()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 

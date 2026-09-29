@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BasicBlock, CFG, FunctionAnalysisReport } from '../types/cfg';
-import { getFunctionAnalysis, agentIdentifyFunction } from '../services/api';
+import { getFunctionAnalysis, agentIdentifyFunction, getAgentStatus, configureAgentProvider, AgentStatusResponse } from '../services/api';
 import { Terminal, Code, Cpu, X, ChevronRight, Hash, ArrowUpRight, ArrowDownLeft, Shield, AlertTriangle, Sparkles, CheckCircle2, Bot, Loader2 } from 'lucide-react';
 
 
@@ -28,9 +28,24 @@ export const InstructionPanel: React.FC<InstructionPanelProps> = ({
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
   const [isAnalyzingWithAgent, setIsAnalyzingWithAgent] = useState(false);
   const [agentError, setAgentError] = useState<string | null>(null);
+  const [agentStatus, setAgentStatus] = useState<AgentStatusResponse | null>(null);
   const blockRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const analysisReport = analysisReportProp ?? internalReport;
+
+  useEffect(() => {
+    getAgentStatus().then(st => setAgentStatus(st)).catch(() => {});
+  }, []);
+
+  const handleProviderChange = async (providerId: string) => {
+    try {
+      const updated = await configureAgentProvider({ provider: providerId });
+      setAgentStatus(updated);
+    } catch (err: any) {
+      console.error("Failed to switch provider:", err);
+    }
+  };
+
 
   const handleRunAgentIdentification = async () => {
     if (!functionName) return;
@@ -507,6 +522,35 @@ export const InstructionPanel: React.FC<InstructionPanelProps> = ({
                           </>
                         )}
                       </button>
+
+                      {/* LLM Provider Selector Pill */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', backgroundColor: '#161b22', padding: '2px 8px', borderRadius: '6px', border: '1px solid #30363d' }}>
+                        <span style={{
+                          width: '6px',
+                          height: '6px',
+                          borderRadius: '50%',
+                          backgroundColor: agentStatus?.is_available ? '#3fb950' : '#d29922',
+                          display: 'inline-block'
+                        }} />
+                        <select
+                          value={agentStatus?.active_provider?.startsWith("gemini") ? "gemini" : agentStatus?.active_provider?.startsWith("ollama") ? "ollama" : "mock"}
+                          onChange={(e) => handleProviderChange(e.target.value)}
+                          style={{
+                            backgroundColor: 'transparent',
+                            color: '#c9d1d9',
+                            border: 'none',
+                            fontSize: '10px',
+                            fontFamily: 'var(--font-mono)',
+                            cursor: 'pointer',
+                            outline: 'none',
+                          }}
+                        >
+                          <option value="gemini" style={{ backgroundColor: '#161b22' }}>Gemini (Cloud)</option>
+                          <option value="ollama" style={{ backgroundColor: '#161b22' }}>Ollama (Local Air-Gapped)</option>
+                          <option value="mock" style={{ backgroundColor: '#161b22' }}>Offline Heuristic</option>
+                        </select>
+                      </div>
+
 
                       <span
                         style={{
