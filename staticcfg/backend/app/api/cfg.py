@@ -177,6 +177,11 @@ class AgentConfigRequest(BaseModel):
     model: Optional[str] = None
     base_url: Optional[str] = None
     api_key: Optional[str] = None
+    save_to_env: Optional[bool] = False
+
+class SaveKeyRequest(BaseModel):
+    key: str
+    value: str
 
 @router.get("/agent/status")
 def get_agent_status():
@@ -186,7 +191,19 @@ def get_agent_status():
 @router.post("/agent/config")
 def configure_agent_provider(req: AgentConfigRequest):
     from app.function_id.agent.providers import set_configured_provider, get_active_provider_info
+    from app.config import save_env_variable
     try:
+        if req.save_to_env and req.api_key:
+            pt = req.provider.lower()
+            if pt == "gemini":
+                save_env_variable("GEMINI_API_KEY", req.api_key)
+                if req.model:
+                    save_env_variable("GEMINI_MODEL", req.model)
+            elif pt in ("openai", "openai_compatible"):
+                save_env_variable("OPENAI_API_KEY", req.api_key)
+                if req.model:
+                    save_env_variable("OPENAI_MODEL", req.model)
+
         set_configured_provider(
             provider_type=req.provider,
             model=req.model,
@@ -196,6 +213,30 @@ def configure_agent_provider(req: AgentConfigRequest):
         return get_active_provider_info()
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/agent/save-key")
+def save_agent_api_key(req: SaveKeyRequest):
+    """
+    Directly writes an API key or configuration variable into the .env file
+    and refreshes the running provider configuration.
+    """
+    from app.config import save_env_variable
+    from app.function_id.agent.providers import set_configured_provider, get_active_provider_info
+    
+    key_name = req.key.strip().upper()
+    if key_name == "GEMINI":
+        key_name = "GEMINI_API_KEY"
+    elif key_name == "OPENAI":
+        key_name = "OPENAI_API_KEY"
+        
+    save_env_variable(key_name, req.value.strip())
+    
+    if key_name == "GEMINI_API_KEY":
+        set_configured_provider("gemini", api_key=req.value.strip())
+    elif key_name == "OPENAI_API_KEY":
+        set_configured_provider("openai", api_key=req.value.strip())
+
+    return get_active_provider_info()
 
 
 

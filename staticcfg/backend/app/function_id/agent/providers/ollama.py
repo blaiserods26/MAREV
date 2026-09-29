@@ -3,6 +3,7 @@ import json
 import logging
 from typing import Dict, Any, List, Optional
 import httpx
+from app.config import settings
 from app.function_id.agent.providers.base import BaseLLMProvider
 
 logger = logging.getLogger(__name__)
@@ -18,8 +19,14 @@ class OllamaProvider(BaseLLMProvider):
         base_url: Optional[str] = None,
         model: Optional[str] = None,
     ) -> None:
-        self.base_url = (base_url or os.getenv("OLLAMA_HOST") or os.getenv("OLLAMA_BASE_URL") or "http://localhost:11434").rstrip("/")
-        self.model = model or os.getenv("OLLAMA_MODEL") or "qwen2.5-coder"
+        self.base_url = (
+            base_url
+            or os.getenv("OLLAMA_HOST")
+            or os.getenv("OLLAMA_BASE_URL")
+            or settings.ollama_host
+            or "http://localhost:11434"
+        ).rstrip("/")
+        self.model = model or os.getenv("OLLAMA_MODEL") or settings.ollama_model or "qwen2.5-coder"
 
     def name(self) -> str:
         return f"ollama ({self.model})"

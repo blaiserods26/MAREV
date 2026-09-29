@@ -3,6 +3,7 @@ import json
 import logging
 from typing import Dict, Any, Optional
 import httpx
+from app.config import settings
 from app.function_id.agent.providers.base import BaseLLMProvider
 
 logger = logging.getLogger(__name__)
@@ -12,9 +13,16 @@ class GoogleGeminiProvider(BaseLLMProvider):
     Inference provider connecting to Google Gemini API (e.g. gemini-1.5-flash or gemini-2.0-flash).
     """
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-1.5-flash") -> None:
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
-        self.model = os.getenv("GEMINI_MODEL") or model
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None) -> None:
+        self.api_key = (
+            api_key
+            or settings.gemini_api_key
+            or settings.google_api_key
+            or os.getenv("GEMINI_API_KEY")
+            or os.getenv("GOOGLE_API_KEY")
+            or ""
+        )
+        self.model = model or os.getenv("GEMINI_MODEL") or settings.gemini_model or "gemini-1.5-flash"
 
     def name(self) -> str:
         return f"gemini ({self.model})"

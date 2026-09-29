@@ -186,4 +186,38 @@ def test_ollama_provider_mocked(monkeypatch):
     assert len(result["parameters"]) == 1
     assert result["confidence"] == 0.89
 
+def test_env_key_storage_and_fetching(tmp_path, monkeypatch):
+    """
+    Tests that API keys are stored and fetched accurately from .env and settings.
+    """
+    from app.config import settings, save_env_variable, PRIMARY_ENV_FILE
+    from app.function_id.agent.providers.gemini import GoogleGeminiProvider
+    from app.function_id.agent.providers import get_active_provider_info
+
+    # Verify Gemini provider is available when key is set
+    provider = GoogleGeminiProvider()
+    assert provider.is_available() is True
+    assert provider.api_key != ""
+
+    info = get_active_provider_info()
+    assert info["gemini_configured"] is True
+    assert "..." in info["gemini_masked_key"]
+
+def test_api_save_key_endpoint():
+    """
+    Tests saving an API key via the /api/agent/save-key endpoint.
+    """
+    from app.config import settings, save_env_variable
+    orig_key = settings.gemini_api_key
+    client = TestClient(app)
+    try:
+        resp = client.post("/api/agent/save-key", json={"key": "gemini", "value": "AIzaSyTestKey1234567890"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["gemini_configured"] is True
+        assert "AIza" in data["gemini_masked_key"]
+    finally:
+        if orig_key:
+            save_env_variable("GEMINI_API_KEY", orig_key)
+
 

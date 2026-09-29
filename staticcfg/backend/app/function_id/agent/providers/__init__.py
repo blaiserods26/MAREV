@@ -61,7 +61,13 @@ def get_active_provider_info() -> Dict[str, Any]:
     """Returns metadata about active provider and available alternatives."""
     active = get_default_provider()
 
-    gemini_avail = GoogleGeminiProvider().is_available()
+    gemini = GoogleGeminiProvider()
+    gemini_avail = gemini.is_available()
+    masked_key = ""
+    if gemini_avail and gemini.api_key:
+        k = gemini.api_key.strip()
+        masked_key = f"{k[:4]}...{k[-4:]}" if len(k) > 10 else "***"
+
     ollama = OllamaProvider()
     ollama_avail = ollama.is_available()
     local_models = ollama.list_local_models() if ollama_avail else []
@@ -70,8 +76,10 @@ def get_active_provider_info() -> Dict[str, Any]:
         "status": "ready" if active.is_available() else "offline",
         "active_provider": active.name(),
         "is_available": active.is_available(),
+        "gemini_configured": gemini_avail,
+        "gemini_masked_key": masked_key,
         "available_providers": [
-            {"id": "gemini", "name": "Google Gemini", "available": gemini_avail},
+            {"id": "gemini", "name": "Google Gemini", "available": gemini_avail, "masked_key": masked_key},
             {"id": "ollama", "name": "Local Ollama (Air-Gapped)", "available": ollama_avail, "models": local_models},
             {"id": "mock", "name": "Deterministic Offline Engine", "available": True},
         ]

@@ -80,12 +80,15 @@ export interface AgentProviderOption {
   name: string;
   available: boolean;
   models?: string[];
+  masked_key?: string;
 }
 
 export interface AgentStatusResponse {
   status: string;
   active_provider: string;
   is_available: boolean;
+  gemini_configured?: boolean;
+  gemini_masked_key?: string;
   available_providers: AgentProviderOption[];
 }
 
@@ -99,8 +102,14 @@ export async function configureAgentProvider(config: {
   model?: string;
   base_url?: string;
   api_key?: string;
+  save_to_env?: boolean;
 }): Promise<AgentStatusResponse> {
   const res = await axios.post<AgentStatusResponse>(`${API_BASE}/agent/config`, config);
+  return res.data;
+}
+
+export async function saveAgentApiKey(key: string, value: string): Promise<AgentStatusResponse> {
+  const res = await axios.post<AgentStatusResponse>(`${API_BASE}/agent/save-key`, { key, value });
   return res.data;
 }
 

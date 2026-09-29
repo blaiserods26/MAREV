@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BasicBlock, CFG, FunctionAnalysisReport } from '../types/cfg';
-import { getFunctionAnalysis, agentIdentifyFunction, getAgentStatus, configureAgentProvider, AgentStatusResponse } from '../services/api';
-import { Terminal, Code, Cpu, X, ChevronRight, Hash, ArrowUpRight, ArrowDownLeft, Shield, AlertTriangle, Sparkles, CheckCircle2, Bot, Loader2 } from 'lucide-react';
+import { getFunctionAnalysis, agentIdentifyFunction, getAgentStatus, configureAgentProvider, saveAgentApiKey, AgentStatusResponse } from '../services/api';
+import { Terminal, Code, Cpu, X, ChevronRight, Hash, ArrowUpRight, ArrowDownLeft, Shield, AlertTriangle, Sparkles, CheckCircle2, Bot, Loader2, KeyRound } from 'lucide-react';
 
 
 interface InstructionPanelProps {
@@ -37,12 +37,35 @@ export const InstructionPanel: React.FC<InstructionPanelProps> = ({
     getAgentStatus().then(st => setAgentStatus(st)).catch(() => {});
   }, []);
 
+  const [isEditingKey, setIsEditingKey] = useState(false);
+  const [inputApiKey, setInputApiKey] = useState('');
+  const [isSavingKey, setIsSavingKey] = useState(false);
+  const [keySaveMessage, setKeySaveMessage] = useState<string | null>(null);
+
   const handleProviderChange = async (providerId: string) => {
     try {
       const updated = await configureAgentProvider({ provider: providerId });
       setAgentStatus(updated);
     } catch (err: any) {
       console.error("Failed to switch provider:", err);
+    }
+  };
+
+  const handleSaveKey = async () => {
+    if (!inputApiKey.trim()) return;
+    setIsSavingKey(true);
+    try {
+      const updated = await saveAgentApiKey('GEMINI_API_KEY', inputApiKey.trim());
+      setAgentStatus(updated);
+      setIsEditingKey(false);
+      setInputApiKey('');
+      setKeySaveMessage('Key saved to .env!');
+      setTimeout(() => setKeySaveMessage(null), 3000);
+    } catch (err: any) {
+      console.error("Failed to save API key to .env:", err);
+      setAgentError('Failed to save API key to .env file');
+    } finally {
+      setIsSavingKey(false);
     }
   };
 
@@ -551,6 +574,37 @@ export const InstructionPanel: React.FC<InstructionPanelProps> = ({
                         </select>
                       </div>
 
+                      {/* .env Key Status & Config Button */}
+                      {agentStatus?.active_provider?.startsWith("gemini") && (
+                        <button
+                          onClick={() => setIsEditingKey(!isEditingKey)}
+                          title="View / update API key in backend .env file"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            backgroundColor: agentStatus.gemini_configured ? '#23863622' : '#d2992222',
+                            color: agentStatus.gemini_configured ? '#3fb950' : '#d29922',
+                            border: `1px solid ${agentStatus.gemini_configured ? '#23863655' : '#d2992255'}`,
+                            borderRadius: '6px',
+                            padding: '2px 8px',
+                            fontSize: '10px',
+                            fontFamily: 'var(--font-mono)',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <KeyRound size={11} />
+                          <span>
+                            {agentStatus.gemini_masked_key ? `.env: ${agentStatus.gemini_masked_key}` : 'Set .env Key'}
+                          </span>
+                        </button>
+                      )}
+
+                      {keySaveMessage && (
+                        <span style={{ color: '#3fb950', fontSize: '10px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                          <CheckCircle2 size={11} /> {keySaveMessage}
+                        </span>
+                      )}
 
                       <span
                         style={{
@@ -586,6 +640,71 @@ export const InstructionPanel: React.FC<InstructionPanelProps> = ({
                       </span>
                     </div>
                   </div>
+
+                  {/* Inline .env API Key Editor Form */}
+                  {isEditingKey && (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      backgroundColor: '#161b22',
+                      border: '1px solid #30363d',
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                    }}>
+                      <KeyRound size={14} color="#bc8cff" />
+                      <span style={{ fontSize: '11px', color: '#8b949e', whiteSpace: 'nowrap' }}>GEMINI_API_KEY:</span>
+                      <input
+                        type="password"
+                        placeholder={agentStatus?.gemini_masked_key ? `Configured (${agentStatus.gemini_masked_key})` : "Paste AI Studio API key..."}
+                        value={inputApiKey}
+                        onChange={(e) => setInputApiKey(e.target.value)}
+                        style={{
+                          flex: 1,
+                          backgroundColor: '#0d1117',
+                          border: '1px solid #21262d',
+                          borderRadius: '4px',
+                          color: '#e6edf3',
+                          fontSize: '11px',
+                          padding: '4px 8px',
+                          outline: 'none',
+                          fontFamily: 'var(--font-mono)',
+                        }}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSaveKey()}
+                      />
+                      <button
+                        onClick={handleSaveKey}
+                        disabled={isSavingKey || !inputApiKey.trim()}
+                        style={{
+                          backgroundColor: '#238636',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: '4px',
+                          padding: '4px 12px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: inputApiKey.trim() ? 'pointer' : 'not-allowed',
+                          opacity: inputApiKey.trim() ? 1 : 0.6,
+                        }}
+                      >
+                        {isSavingKey ? 'Saving...' : 'Save to .env'}
+                      </button>
+                      <button
+                        onClick={() => { setIsEditingKey(false); setInputApiKey(''); }}
+                        style={{
+                          backgroundColor: 'transparent',
+                          color: '#8b949e',
+                          border: '1px solid #30363d',
+                          borderRadius: '4px',
+                          padding: '4px 8px',
+                          fontSize: '11px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
 
                   {agentError && (
                     <div style={{ backgroundColor: '#ff7b7222', border: '1px solid #ff7b7266', borderRadius: '4px', padding: '6px 10px', color: '#ff7b72', fontSize: '11px' }}>

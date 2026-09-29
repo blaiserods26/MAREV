@@ -3,6 +3,7 @@ import json
 import logging
 from typing import Dict, Any, Optional
 import httpx
+from app.config import settings
 from app.function_id.agent.providers.base import BaseLLMProvider
 
 logger = logging.getLogger(__name__)
@@ -19,9 +20,19 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         api_key: Optional[str] = None,
         model: Optional[str] = None,
     ) -> None:
-        self.base_url = base_url or os.getenv("LLM_BASE_URL") or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY", "ollama")
-        self.model = model or os.getenv("LLM_MODEL", "qwen2.5-coder")
+        self.base_url = (
+            base_url
+            or os.getenv("LLM_BASE_URL")
+            or os.getenv("OLLAMA_BASE_URL")
+            or f"{settings.ollama_host}/v1"
+        )
+        self.api_key = (
+            api_key
+            or settings.openai_api_key
+            or os.getenv("OPENAI_API_KEY")
+            or os.getenv("LLM_API_KEY", "ollama")
+        )
+        self.model = model or os.getenv("LLM_MODEL") or settings.openai_model
 
     def name(self) -> str:
         return f"openai_compatible ({self.model} @ {self.base_url})"
