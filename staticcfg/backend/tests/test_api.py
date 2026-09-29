@@ -51,3 +51,17 @@ def test_get_functions_with_prediction_and_search(api_client: TestClient, sample
     assert len(funcs) == 1
     assert funcs[0]["name"] == "main"
     assert "semantic_category" in funcs[0]
+
+def test_get_function_analysis(api_client: TestClient, sample_asm_snippet):
+    file_bytes = sample_asm_snippet.encode("utf-8")
+    files = {"file": ("test.asm", io.BytesIO(file_bytes), "text/plain")}
+    api_client.post("/api/analyze", files=files)
+
+    response = api_client.get("/api/analysis/main")
+    assert response.status_code == 200
+    data = response.json()
+    assert "identification" in data
+    assert "fingerprint" in data
+    assert "dominators" in data
+    assert "loops" in data
+

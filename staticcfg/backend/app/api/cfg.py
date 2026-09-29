@@ -14,16 +14,18 @@ router = APIRouter()
 @router.get("/cfg/{function_name:path}", response_model=CFG)
 def get_function_cfg(function_name: str):
     decoded_name = urllib.parse.unquote(function_name)
+    cleaned = decoded_name.strip("<>")
+    bracketed = f"<{cleaned}>"
     store = SessionStore.get_instance()
     analysis = store.get_analysis()
     if not analysis:
         raise HTTPException(status_code=404, detail="No active assembly file loaded.")
 
-    cfg = analysis.cfgs.get(decoded_name)
-    if not cfg:
-        cleaned = decoded_name.strip("<>")
-        cfg = analysis.cfgs.get(cleaned)
-
+    cfg = (
+        analysis.cfgs.get(decoded_name)
+        or analysis.cfgs.get(cleaned)
+        or analysis.cfgs.get(bracketed)
+    )
     if not cfg:
         raise HTTPException(status_code=404, detail=f"CFG for function '{decoded_name}' not found.")
 
@@ -41,16 +43,18 @@ def get_call_graph():
 @router.get("/fingerprint/{function_name:path}", response_model=FunctionFingerprint)
 def get_function_fingerprint(function_name: str):
     decoded_name = urllib.parse.unquote(function_name)
+    cleaned = decoded_name.strip("<>")
+    bracketed = f"<{cleaned}>"
     store = SessionStore.get_instance()
     analysis = store.get_analysis()
     if not analysis:
         raise HTTPException(status_code=404, detail="No active assembly file loaded.")
 
-    fp = analysis.fingerprints.get(decoded_name)
-    if not fp:
-        cleaned = decoded_name.strip("<>")
-        fp = analysis.fingerprints.get(cleaned)
-
+    fp = (
+        analysis.fingerprints.get(decoded_name)
+        or analysis.fingerprints.get(cleaned)
+        or analysis.fingerprints.get(bracketed)
+    )
     if not fp:
         raise HTTPException(status_code=404, detail=f"Fingerprint for function '{decoded_name}' not found.")
 
@@ -59,29 +63,46 @@ def get_function_fingerprint(function_name: str):
 @router.get("/analysis/{function_name:path}")
 def get_function_analysis(function_name: str):
     decoded_name = urllib.parse.unquote(function_name)
+    cleaned = decoded_name.strip("<>")
+    bracketed = f"<{cleaned}>"
     store = SessionStore.get_instance()
     analysis = store.get_analysis()
     if not analysis:
         raise HTTPException(status_code=404, detail="No active assembly file loaded.")
 
-    cfg = analysis.cfgs.get(decoded_name)
-    if not cfg:
-        cleaned = decoded_name.strip("<>")
-        cfg = analysis.cfgs.get(cleaned)
-
+    cfg = (
+        analysis.cfgs.get(decoded_name)
+        or analysis.cfgs.get(cleaned)
+        or analysis.cfgs.get(bracketed)
+    )
     if not cfg:
         raise HTTPException(status_code=404, detail=f"Function '{decoded_name}' not found.")
 
-    summary = next((f for f in analysis.functions if f.name == decoded_name or f.name == cleaned), None)
-    fp = analysis.fingerprints.get(decoded_name) or analysis.fingerprints.get(cleaned)
-    ident = analysis.identifications.get(decoded_name) or analysis.identifications.get(cleaned)
+    summary = next(
+        (f for f in analysis.functions if f.name in (decoded_name, cleaned, bracketed)),
+        None
+    )
+    fp = (
+        analysis.fingerprints.get(decoded_name)
+        or analysis.fingerprints.get(cleaned)
+        or analysis.fingerprints.get(bracketed)
+    )
+    ident = (
+        analysis.identifications.get(decoded_name)
+        or analysis.identifications.get(cleaned)
+        or analysis.identifications.get(bracketed)
+    )
 
     # Dominator analysis
     dom_info = compute_dominators(cfg)
     # Loop analysis
     loop_info = analyze_loops(cfg)
     # Caller/Callee relationships
-    rel_info = analysis.callgraph.relationships.get(decoded_name) or analysis.callgraph.relationships.get(cleaned)
+    rel_info = (
+        analysis.callgraph.relationships.get(decoded_name)
+        or analysis.callgraph.relationships.get(cleaned)
+        or analysis.callgraph.relationships.get(bracketed)
+    )
 
     return {
         "function": cfg.function,
@@ -103,20 +124,29 @@ def get_function_analysis(function_name: str):
 @router.get("/identification/{function_name:path}")
 def get_function_identification(function_name: str):
     decoded_name = urllib.parse.unquote(function_name)
+    cleaned = decoded_name.strip("<>")
+    bracketed = f"<{cleaned}>"
     store = SessionStore.get_instance()
     analysis = store.get_analysis()
     if not analysis:
         raise HTTPException(status_code=404, detail="No active assembly file loaded.")
 
-    ident = analysis.identifications.get(decoded_name)
-    if not ident:
-        cleaned = decoded_name.strip("<>")
-        ident = analysis.identifications.get(cleaned)
-
+    ident = (
+        analysis.identifications.get(decoded_name)
+        or analysis.identifications.get(cleaned)
+        or analysis.identifications.get(bracketed)
+    )
     if not ident:
         raise HTTPException(status_code=404, detail=f"Identification for function '{decoded_name}' not found.")
 
     return ident
+
+@router.get("/identifications")
+def get_all_identifications():
+    store = SessionStore.get_instance()
+    analysis = store.get_analysis()
+    if not analysis:
+        raise HTTPException(status_code=404, detail="No active assembly file loaded.")
 
     return analysis.identifications
 
@@ -128,6 +158,7 @@ def agent_identify_function(function_name: str):
     analysis = store.get_analysis()
     if not analysis:
         raise HTTPException(status_code=404, detail="No active assembly file loaded.")
+
 
     from app.function_id.agent import AgenticFunctionIdentifier
     try:
