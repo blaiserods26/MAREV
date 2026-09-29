@@ -1,5 +1,13 @@
 import axios from 'axios';
-import { AnalysisResponse, FunctionSummary, CFG, CallGraph, FunctionAnalysisReport, FunctionFingerprint } from '../types/cfg';
+import {
+  AnalysisResponse,
+  FunctionSummary,
+  CFG,
+  CallGraph,
+  FunctionAnalysisReport,
+  FunctionFingerprint,
+  IdentificationResult,
+} from '../types/cfg';
 
 const API_BASE = '/api';
 
@@ -45,7 +53,30 @@ export async function getFunctionFingerprint(functionName: string): Promise<Func
   return res.data;
 }
 
+export async function getFunctionIdentification(functionName: string): Promise<IdentificationResult> {
+  const encoded = encodeURIComponent(functionName);
+  const res = await axios.get<IdentificationResult>(`${API_BASE}/identification/${encoded}`);
+  return res.data;
+}
+
+export async function getIdentifications(): Promise<Record<string, IdentificationResult>> {
+  const res = await axios.get<Record<string, IdentificationResult>>(`${API_BASE}/identifications`);
+  return res.data;
+}
+
 export async function getCallGraph(): Promise<CallGraph> {
   const res = await axios.get<CallGraph>(`${API_BASE}/callgraph`);
   return res.data;
 }
+
+export async function agentIdentifyFunction(functionName: string): Promise<IdentificationResult> {
+  const encoded = encodeURIComponent(functionName);
+  const res = await axios.post<IdentificationResult>(`${API_BASE}/functions/${encoded}/agent-identify`);
+  return res.data;
+}
+
+export async function getAgentStatus(): Promise<{ status: string; provider: string; is_available: boolean }> {
+  const res = await axios.get<{ status: string; provider: string; is_available: boolean }>(`${API_BASE}/agent/status`);
+  return res.data;
+}
+

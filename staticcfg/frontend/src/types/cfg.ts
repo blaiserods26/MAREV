@@ -54,6 +54,9 @@ export interface FunctionSummary {
   end_address: number | null;
   instruction_count: number;
   section: string | null;
+  predicted_name?: string | null;
+  confidence?: number | null;
+  semantic_category?: string | null;
 }
 
 export interface BasicBlock {
@@ -81,6 +84,7 @@ export interface CFGEdge {
   target: string;
   type: CFGEdgeType;
   condition?: string | null;
+  is_back_edge?: boolean;
 }
 
 export interface CFG {
@@ -150,6 +154,44 @@ export interface FunctionCallInfo {
   callees: CallSite[];
 }
 
+export interface ParameterSignature {
+  name: string;
+  type_name: string;
+  register_or_location?: string | null;
+  description?: string | null;
+}
+
+export interface RecoveredSignature {
+  name: string;
+  return_type: string;
+  parameters: ParameterSignature[];
+  calling_convention: string;
+  c_prototype: string;
+  summary: string;
+  confidence: number;
+  reasoning: string[];
+  nested_callees_analyzed: string[];
+}
+
+export interface CandidatePrediction {
+  predicted_name: string;
+  category: string;
+  confidence: number;
+  evidence: string[];
+}
+
+export interface IdentificationResult {
+  recovered_name: string;
+  address: number;
+  formatted_address: string;
+  semantic_category: string;
+  is_exact_library_match: boolean;
+  top_prediction?: CandidatePrediction | null;
+  alternative_candidates: CandidatePrediction[];
+  evidence_summary: string[];
+  recovered_signature?: RecoveredSignature | null;
+}
+
 export interface FunctionAnalysisReport {
   function: string;
   start_address: string | null;
@@ -164,6 +206,7 @@ export interface FunctionAnalysisReport {
   callers: CallSite[];
   callees: CallSite[];
   fingerprint?: FunctionFingerprint | null;
+  identification?: IdentificationResult | null;
 }
 
 export interface AnalysisResponse {

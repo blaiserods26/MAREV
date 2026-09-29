@@ -13,7 +13,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import dagre from 'dagre';
-import { CFG, BasicBlock, CFGEdgeType } from '../types/cfg';
+import { CFG, BasicBlock, CFGEdgeType, DominatorTreeInfo } from '../types/cfg';
 import { CFGNode } from './CFGNode';
 import { Maximize2, RefreshCw, ZoomIn, ZoomOut } from 'lucide-react';
 
@@ -22,6 +22,8 @@ interface CFGCanvasProps {
   selectedBlockId: string | null;
   onSelectBlock: (block: BasicBlock | null) => void;
   showUnreachable: boolean;
+  dominatorInfo?: DominatorTreeInfo | null;
+  highlightLoops?: boolean;
 }
 
 const nodeTypes = {
@@ -80,6 +82,8 @@ export const CFGCanvas: React.FC<CFGCanvasProps> = ({
   selectedBlockId,
   onSelectBlock,
   showUnreachable,
+  dominatorInfo,
+  highlightLoops,
 }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -94,6 +98,21 @@ export const CFGCanvas: React.FC<CFGCanvasProps> = ({
     }
 
     const unreachableSet = new Set(cfg.unreachable_blocks);
+    const loopHeaders = new Set<string>();
+    const loopBlockIds = new Set<string>();
+
+    cfg.edges.forEach((e) => {
+      if (e.is_back_edge) {
+        loopHeaders.add(e.target);
+        loopBlockIds.add(e.source);
+        loopBlockIds.add(e.target);
+      }
+    });
+
+    const idom = selectedBlockId && dominatorInfo?.immediate_dominators ? dominatorInfo.immediate_dominators[selectedBlockId] : null;
+    const frontiers = new Set(
+      selectedBlockId && dominatorInfo?.dominance_frontiers ? dominatorInfo.dominance_frontiers[selectedBlockId] || [] : []
+    );
 
     const initialNodes: Node[] = cfg.nodes.map((block) => ({
       id: block.id,
@@ -102,28 +121,42 @@ export const CFGCanvas: React.FC<CFGCanvasProps> = ({
         block,
         isSelected: block.id === selectedBlockId,
         isUnreachable: showUnreachable && unreachableSet.has(block.id),
+        isLoopHeader: loopHeaders.has(block.id),
+        isIdom: Boolean(idom && idom === block.id),
+        isFrontier: Boolean(frontiers.has(block.id)),
+        isDimmed: Boolean(highlightLoops && loopHeaders.size > 0 && !loopBlockIds.has(block.id)),
       },
       position: { x: 0, y: 0 },
     }));
 
     const initialEdges: Edge[] = cfg.edges.map((e, idx) => {
-      const color = EDGE_COLORS[e.type as CFGEdgeType] || '#8b949e';
+      const isLoop = Boolean(e.is_back_edge);
+      const isEdgeDimmed = Boolean(highlightLoops && loopHeaders.size > 0 && !isLoop && !(loopBlockIds.has(e.source) && loopBlockIds.has(e.target)));
+      const baseColor = isLoop ? '#f59e0b' : (EDGE_COLORS[e.type as CFGEdgeType] || '#8b949e');
+      const color = isEdgeDimmed ? '#333b47' : baseColor;
+      const edgeLabel = isLoop ? `${e.type} [LOOP]` : e.type;
+
       return {
         id: `e-${e.source}-${e.target}-${idx}`,
         source: e.source,
         target: e.target,
-        label: e.type,
+        label: isEdgeDimmed ? '' : edgeLabel,
         type: 'smoothstep',
-        animated: e.type === 'true' || e.type === 'jump',
-        style: { stroke: color, strokeWidth: 2 },
+        animated: isLoop || (!isEdgeDimmed && (e.type === 'true' || e.type === 'jump')),
+        style: {
+          stroke: color,
+          strokeWidth: isLoop ? 2.5 : (isEdgeDimmed ? 1 : 2),
+          strokeDasharray: isLoop ? '5,5' : undefined,
+          opacity: isEdgeDimmed ? 0.35 : 1,
+        },
         markerEnd: {
           type: MarkerType.ArrowClosed,
           color,
           width: 14,
           height: 14,
         },
-        labelStyle: { fill: color, fontWeight: 600, fontSize: 11, fontFamily: 'var(--font-mono)' },
-        labelBgStyle: { fill: '#161b22', fillOpacity: 0.9, rx: 4, ry: 4 },
+        labelStyle: { fill: color, fontWeight: 700, fontSize: 11, fontFamily: 'var(--font-mono)' },
+        labelBgStyle: { fill: isLoop ? '#2d1b00' : '#161b22', fillOpacity: 0.95, rx: 4, ry: 4 },
         labelBgPadding: [4, 2] as [number, number],
       };
     });
@@ -135,7 +168,7 @@ export const CFGCanvas: React.FC<CFGCanvasProps> = ({
     setTimeout(() => {
       fitView({ padding: 0.2, duration: 250 });
     }, 50);
-  }, [cfg, selectedBlockId, showUnreachable, setNodes, setEdges, fitView]);
+  }, [cfg, selectedBlockId, showUnreachable, dominatorInfo, highlightLoops, setNodes, setEdges, fitView]);
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {

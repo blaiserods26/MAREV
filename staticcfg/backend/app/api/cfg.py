@@ -72,6 +72,7 @@ def get_function_analysis(function_name: str):
 
     summary = next((f for f in analysis.functions if f.name == decoded_name or f.name == cleaned), None)
     fp = analysis.fingerprints.get(decoded_name) or analysis.fingerprints.get(cleaned)
+    ident = analysis.identifications.get(decoded_name) or analysis.identifications.get(cleaned)
 
     # Dominator analysis
     dom_info = compute_dominators(cfg)
@@ -93,5 +94,57 @@ def get_function_analysis(function_name: str):
         "loops": loop_info.model_dump(),
         "callers": rel_info.callers if rel_info else [],
         "callees": rel_info.callees if rel_info else [],
-        "fingerprint": fp.model_dump() if fp else None
+        "fingerprint": fp.model_dump() if fp else None,
+        "identification": ident.model_dump() if ident else None
     }
+
+@router.get("/identification/{function_name:path}")
+def get_function_identification(function_name: str):
+    decoded_name = urllib.parse.unquote(function_name)
+    store = SessionStore.get_instance()
+    analysis = store.get_analysis()
+    if not analysis:
+        raise HTTPException(status_code=404, detail="No active assembly file loaded.")
+
+    ident = analysis.identifications.get(decoded_name)
+    if not ident:
+        cleaned = decoded_name.strip("<>")
+        ident = analysis.identifications.get(cleaned)
+
+    if not ident:
+        raise HTTPException(status_code=404, detail=f"Identification for function '{decoded_name}' not found.")
+
+    return ident
+
+    return analysis.identifications
+
+@router.post("/functions/{function_name:path}/agent-identify")
+@router.post("/identification/{function_name:path}/agent-identify")
+def agent_identify_function(function_name: str):
+    decoded_name = urllib.parse.unquote(function_name)
+    store = SessionStore.get_instance()
+    analysis = store.get_analysis()
+    if not analysis:
+        raise HTTPException(status_code=404, detail="No active assembly file loaded.")
+
+    from app.function_id.agent import AgenticFunctionIdentifier
+    try:
+        identifier = AgenticFunctionIdentifier(analysis)
+        result = identifier.identify_function(decoded_name)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Agent identification failed: {str(e)}")
+
+@router.get("/agent/status")
+def get_agent_status():
+    from app.function_id.agent.providers import get_default_provider
+    provider = get_default_provider()
+    return {
+        "status": "ready",
+        "provider": provider.name(),
+        "is_available": provider.is_available()
+    }
+
+

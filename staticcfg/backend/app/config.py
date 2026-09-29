@@ -1,6 +1,6 @@
 import os
 from typing import Optional
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "StaticCFG Backend"
@@ -18,8 +18,9 @@ class Settings(BaseSettings):
     max_file_size_mb: int = 200
     cache_enabled: bool = True
     
-    class Config:
-        env_prefix = "STATICCFG_"
-        case_sensitive = False
+    model_config = SettingsConfigDict(
+        env_prefix="STATICCFG_",
+        case_sensitive=False
+    )
 
 settings = Settings()

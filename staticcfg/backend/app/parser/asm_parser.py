@@ -7,6 +7,7 @@ from app.ir.models import BinaryProject, Section, Function, Instruction, Referen
 from app.parser.instruction import extract_target_and_references, classify_instruction
 from app.parser.function import FunctionBuilder
 from app.parser.section import SectionBuilder
+from app.recovery.engine import FunctionRecoveryEngine
 
 SECTION_PATTERN = re.compile(r'^Disassembly of section\s+([^:]+):')
 FUNCTION_PATTERN = re.compile(r'^([0-9a-fA-F]+)\s+<([^>]+)>:')
@@ -30,6 +31,7 @@ class ASMParser(BaseDisassemblyParser):
     def parse_lines(cls, lines: List[str], filename: str = "uploaded.asm") -> BinaryProject:
         sections_map: Dict[str, SectionBuilder] = {}
         functions_map: Dict[str, Function] = {}
+        unassigned_instructions: List[Instruction] = []
         global_references: List[Reference] = []
         
         current_section: Optional[str] = None
@@ -79,7 +81,7 @@ class ASMParser(BaseDisassemblyParser):
                 continue
 
             # Check Instruction Line:   400294:	f3 0f 1e fa          	endbr64
-            if current_builder and ':' in line:
+            if ':' in line:
                 parts = line.split(':', 1)
                 addr_part = parts[0].strip()
                 
@@ -87,6 +89,11 @@ class ASMParser(BaseDisassemblyParser):
                     address = int(addr_part, 16)
                 except ValueError:
                     continue
+
+                if not current_section:
+                    current_section = ".text"
+                    if current_section not in sections_map:
+                        sections_map[current_section] = SectionBuilder(current_section)
 
                 rest = parts[1]
                 comment: Optional[str] = None
@@ -118,6 +125,8 @@ class ASMParser(BaseDisassemblyParser):
                 target_addr, target_symbol, is_indirect, refs = extract_target_and_references(address, mnemonic, operands)
                 global_references.extend(refs)
 
+                func_name = current_builder.name if current_builder else None
+
                 inst = Instruction(
                     address=address,
                     raw_bytes=raw_bytes,
@@ -127,14 +136,19 @@ class ASMParser(BaseDisassemblyParser):
                     target_symbol=target_symbol,
                     instruction_type=inst_type,
                     section=current_section,
-                    function_name=current_builder.name,
-                    function=current_builder.name,
+                    function_name=func_name,
+                    function=func_name,
                     line_number=line_idx,
                     comment=comment,
                     is_indirect=is_indirect,
                     references=refs
                 )
-                current_builder.add_instruction(inst)
+
+                if current_builder:
+                    current_builder.add_instruction(inst)
+                else:
+                    unassigned_instructions.append(inst)
+
                 if current_section and current_section in sections_map:
                     sections_map[current_section].add_instruction(inst)
 
@@ -142,6 +156,14 @@ class ASMParser(BaseDisassemblyParser):
         if current_builder:
             func = current_builder.build()
             functions_map[func.name] = func
+
+        # Fallback to FunctionRecoveryEngine if unassigned instructions or no functions recovered
+        if unassigned_instructions:
+            recovery_engine = FunctionRecoveryEngine()
+            recovered = recovery_engine.recover_from_instructions(unassigned_instructions)
+            for r_name, r_func in recovered.items():
+                if r_name not in functions_map:
+                    functions_map[r_name] = r_func
 
         built_sections: List[Section] = [sb.build() for sb in sections_map.values()]
 

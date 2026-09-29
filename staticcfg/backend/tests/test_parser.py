@@ -59,3 +59,78 @@ def test_parse_validator_asm_fixture(validator_asm_path):
         assert isinstance(project, BinaryProject)
         assert project.function_count > 100
         assert len(project.sections) > 0
+
+def test_symbol_less_function_recovery():
+    """Test recovering functions from raw disassembly stream without any <symbol>: headers."""
+    raw_asm = """
+Disassembly of section .text:
+
+  401000:	f3 0f 1e fa          	endbr64 
+  401004:	31 ed                	xor    %ebp,%ebp
+  401006:	e8 15 00 00 00       	call   401020
+  40100b:	f4                   	hlt    
+  40100c:	0f 1f 40 00          	nopl   0x0(%rax)
+
+  401020:	55                   	push   %rbp
+  401021:	48 89 e5             	mov    %rsp,%rbp
+  401024:	89 f8                	mov    %edi,%eax
+  401026:	5d                   	pop    %rbp
+  401027:	c3                   	ret    
+  401028:	0f 1f 84 00 00 00 00 	nopl   0x0(%rax,%rax,1)
+
+  401030:	f3 0f 1e fa          	endbr64 
+  401034:	b8 2a 00 00 00       	mov    $0x2a,%eax
+  401039:	c3                   	ret    
+"""
+    parser = ASMParser()
+    project = parser.parse_content(raw_asm, filename="symbol_less.asm")
+
+    assert len(project.functions) == 3
+    assert "sub_401000" in project.functions
+    assert "sub_401020" in project.functions
+    assert "sub_401030" in project.functions
+
+    f1 = project.functions["sub_401000"]
+    assert f1.start_address == 0x401000
+    assert f1.is_stripped is True
+    assert any(i.mnemonic == "endbr64" for i in f1.instructions)
+    assert any(i.mnemonic == "call" for i in f1.instructions)
+
+    f2 = project.functions["sub_401020"]
+    assert f2.start_address == 0x401020
+    assert f2.is_stripped is True
+    assert f2.instructions[0].mnemonic == "push"
+    assert f2.instructions[-1].mnemonic == "ret"
+
+    f3 = project.functions["sub_401030"]
+    assert f3.start_address == 0x401030
+    assert f3.is_stripped is True
+    assert f3.instructions[0].mnemonic == "endbr64"
+
+def test_symbol_less_pipeline_integration():
+    """Verify that symbol-less recovered functions can be analyzed by AnalysisEngine into valid CFGs."""
+    from app.analysis.engine import AnalysisEngine
+
+    raw_asm = """
+  401000:	55                   	push   %rbp
+  401001:	48 89 e5             	mov    %rsp,%rbp
+  401004:	83 7d fc 00          	cmpl   $0x0,-0x4(%rbp)
+  401008:	74 05                	je     40100f
+  40100a:	b8 01 00 00 00       	mov    $0x1,%eax
+  40100f:	5d                   	pop    %rbp
+  401010:	c3                   	ret    
+"""
+    parser = ASMParser()
+    project = parser.parse_content(raw_asm, filename="no_symbols.asm")
+
+    assert len(project.functions) == 1
+    assert "sub_401000" in project.functions
+
+    engine = AnalysisEngine()
+    analysis = engine.analyze(project)
+
+    assert "sub_401000" in analysis.cfgs
+    cfg = analysis.cfgs["sub_401000"]
+    assert len(cfg.nodes) >= 2
+    assert cfg.cyclomatic_complexity >= 2
+

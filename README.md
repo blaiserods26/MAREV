@@ -1,6 +1,6 @@
 # StaticCFG — Production-Quality x86-64 Disassembly & Control Flow Graph Static Analyzer
 
-**StaticCFG** is a high-performance static analysis platform designed to process x86-64 `objdump`-style `.asm` disassembly files, recover function boundaries, construct deterministic Control Flow Graphs (CFGs), execute static structural analysis, and predict function identities in stripped binaries.
+**StaticCFG** is a high-performance static analysis platform designed to process x86-64 `objdump`-style `.asm` disassembly files, recover function boundaries, construct deterministic Control Flow Graphs (CFGs), execute static structural analysis, and predict function identities in stripped binaries using a multi-stage explainable pipeline.
 
 ---
 
@@ -9,43 +9,109 @@
 StaticCFG follows a clean, decoupled monorepo architecture where architecture-specific disassembly parsing is completely isolated from downstream basic block partitioning, flow graph construction, static analysis, and function identity matching.
 
 ```text
-                                  +---------------------------------------+
-                                  |         objdump `.asm` File           |
-                                  +---------------------------------------+
-                                                      |
-                                                      v
-                                  +---------------------------------------+
-                                  |         BaseDisassemblyParser         |
-                                  |            (app/parser/)              |
-                                  +---------------------------------------+
-                                                      |
-                                                      v
-                                  +---------------------------------------+
-                                  |     Intermediate Representation (IR)  |
-                                  |     (BinaryProject, Function, etc.)   |
-                                  +---------------------------------------+
-                                                      |
-                                       +--------------+--------------+
-                                       |                             |
-                                       v                             v
-                        +----------------------------+  +----------------------------+
-                        |  FunctionRecoveryEngine    |  |     BasicBlockEngine       |
-                        |      (app/recovery/)       |  |    (app/basic_block/)      |
-                        +----------------------------+  +----------------------------+
-                                                                     |
-                                                                     v
-                                                        +----------------------------+
-                                                        |         CFGBuilder         |
-                                                        |        (app/cfg/)          |
-                                                        +----------------------------+
-                                                                     |
-                                       +-----------------------------+-----------------------------+
-                                       |                             |                             |
-                                       v                             v                             v
-                        +----------------------------+  +----------------------------+  +----------------------------+
-                        |      Analysis Engine       |  | Function ID Interface      |  |       FastAPI & UI         |
-                        |     (app/analysis/)        |  |    (app/function_id/)      |  |    (app/api & frontend)    |
-                        +----------------------------+  +----------------------------+  +----------------------------+
+Upload stripped/disassembly input
+        ↓
+Recover functions
+        ↓
+Build CFGs
+        ↓
+Build call graph
+        ↓
+Extract fingerprints
+        ↓
+Identify known functions
+        ↓
+Predict unknown function semantics/names
+        ↓
+Show confidence + evidence in UI
+```
+
+---
+
+## Multi-Stage Function Identification Pipeline
+
+For stripped binaries where standard function symbols are stripped (e.g. `sub_401820`), StaticCFG does NOT jump directly from assembly to an arbitrary guessed function name. Instead, it processes each recovered function through a rigorous multi-stage identification pipeline:
+
+```text
+Recovered Function
+      ↓
+Feature Extraction
+      ↓
+Signature Matching
+      ↓
+Library/API Evidence
+      ↓
+String/Constant Evidence
+      ↓
+CFG Similarity
+      ↓
+Semantic Classification
+      ↓
+Candidate Ranking
+      ↓
+Confidence + Evidence
+```
+
+### Identification Methodology & Pipeline Stages
+
+1. **Feature Extraction**: Extracts structural metrics (instruction count, basic block count, edge count, cyclomatic complexity, loop count), opcode category distributions, call references, string references, and numeric constants into a `FunctionFingerprint`.
+2. **Signature Matching**: Matches extracted fingerprints against an extensible `SignatureDatabase` pre-populated with standard C library functions (`strlen`, `strcmp`, `strcpy`, `memcpy`, `memset`, `malloc`, `free`) and common routine signatures (`validate_password`, `sha256_transform`, `socket_connect`, `error_exit`).
+3. **Library/API Evidence**: Identifies direct calls to imported standard library symbols and system APIs.
+4. **String/Constant Evidence**: Scans string literal references (`"password"`, `"access denied"`) and cryptographic magic constants (`0x428a2f98`, `0x67452301`).
+5. **CFG Similarity Scoring**: Computes structural graph similarity using block/edge count ratios, cyclomatic complexity similarity, and entry/exit node topology.
+6. **Semantic Classification**: Categorizes functions into functional domains:
+   - `STRING_PROCESSING`
+   - `MEMORY_MANAGEMENT`
+   - `FILE_IO`
+   - `NETWORKING`
+   - `CRYPTOGRAPHY`
+   - `VALIDATION`
+   - `PARSING`
+   - `ERROR_HANDLING`
+   - `DISPATCHING`
+   - `UTILITY`
+   - `UNKNOWN`
+7. **Candidate Ranking**: Scores and ranks candidate predictions based on weighted evidence.
+8. **Confidence + Explainable Evidence**: Produces confidence percentages alongside itemized evidence bullets (`+ strcmp usage`, `+ validation-like branch structure`) and alternative candidate predictions.
+
+---
+
+## Deterministic Recovery vs. Probabilistic Identification
+
+- **Deterministic Recovery**: Function boundary detection, basic block leader partitioning, control flow graph construction, dominator analysis, loop detection, and call graph generation are 100% deterministic and mathematically verifiable based on formal CFG rules.
+- **Probabilistic Identification**: Function name prediction in stripped binaries is probabilistic. The system never presents uncertain predictions as absolute facts. It always preserves the underlying recovered symbol (`sub_401820`) and address (`0x401820`) alongside confidence scores and alternative candidate predictions.
+
+---
+
+## Machine Learning Interface (`BaseMLClassifier`)
+
+To support future ML models (such as Graph Neural Networks or Transformer-based code embeddings) without coupling the core analyzer to any single framework:
+- The abstract interface `BaseMLClassifier` (`app/function_id/ml_interface.py`) defines `predict_category()`, `compute_embedding()`, and `compute_similarity()`.
+- ML models can be plugged in seamlessly while preserving deterministic static recovery and explainable evidence generation.
+
+---
+
+## Example Pipeline Output
+
+```text
+0x401820
+
+Predicted name:
+validate_password
+
+Confidence:
+87%
+
+Evidence:
++ strcmp usage
++ strlen usage
++ authentication-related string reference
++ validation-like branch structure
++ high CFG similarity
+
+Alternatives:
+check_password      72%
+verify_credentials  55%
 ```
 
 ---
@@ -60,79 +126,8 @@ All static analysis engines and API endpoints operate exclusively on strongly-ty
 4. **`Instruction`**: Normalized assembly instruction model with address, raw bytes, mnemonic, operands, branch targets, control flow classification (`COND_BRANCH`, `UNCOND_BRANCH`, `CALL`, `RET`, `INDIRECT_JUMP`, `NORMAL`, `DATA`, `NOP`), comments, and cross-references.
 5. **`BasicBlock`**: Basic block container bounded by compiler leader rules, storing instruction lists, predecessor/successor block IDs, and terminator types.
 6. **`CFG`**: Control Flow Graph for a function, maintaining entry block ID, exit block IDs, node dictionary, flow edges, cyclomatic complexity metric, and reachability info.
-7. **`CFGEdge`**: Directed control flow edge with type classification (`FALLTHROUGH`, `TRUE_BRANCH`, `FALSE_BRANCH`, `UNCOND_JUMP`, `CALL`, `RETURN`, `INDIRECT`, `UNKNOWN`).
-8. **`Reference`**: Cross-reference model tracking code and data references (`CALL`, `JUMP`, `DATA`, `STRING`) with source address, target address, and target symbol.
-
----
-
-## Clean Module Interfaces
-
-- **Parser Interface (`BaseDisassemblyParser`)**: Standardized parser contract (`parse_content`, `parse_file`) isolating file format nuances.
-- **Function Recovery Interface (`BaseFunctionRecovery`)**: Abstract engine for boundary recovery, entry point detection, and prologue/epilogue pattern analysis.
-- **Basic Block Engine (`BaseBasicBlockEngine`)**: Deterministic partitioner implementing 3-rule leader detection:
-  1. Function start instruction is a leader.
-  2. Branch targets inside function bounds are leaders.
-  3. Instructions immediately following branches or returns are leaders.
-- **CFG Builder Interface (`BaseCFGBuilder`)**: Connects basic blocks with typed control flow edges and calculates reachability and cyclomatic complexity ($M = E - N + 2P$).
-- **Function Identification Interface (`BaseFunctionMatcher`)**: Abstract interface defining function feature signatures (`FunctionSignature`) and match results (`MatchResult`) ready for signature matching in Phase 4.
-
----
-
-## Repository Structure
-
-```text
-CodetoCFG/
-├── staticcfg/
-│   ├── backend/
-│   │   ├── app/
-│   │   │   ├── api/             # FastAPI routers (upload, functions, cfg)
-│   │   │   ├── analysis/        # Cyclomatic complexity, reachability, callgraph
-│   │   │   ├── basic_block/     # Leader detection & basic block engine
-│   │   │   ├── cfg/             # Control Flow Graph builder
-│   │   │   ├── function_id/     # Function identification interfaces
-│   │   │   ├── ir/              # Core IR models & enums
-│   │   │   ├── parser/          # x86-64 objdump parser & abstract parser interface
-│   │   │   ├── recovery/        # Function boundary recovery engine
-│   │   │   ├── config.py        # Settings management
-│   │   │   ├── errors.py        # Exception hierarchy & FastAPI handlers
-│   │   │   ├── logging.py       # Structured logging setup
-│   │   │   └── main.py          # FastAPI application & lifespan loader
-│   │   ├── tests/               # Pytest suite & validator.asm fixture
-│   │   │   ├── conftest.py
-│   │   │   ├── test_api.py
-│   │   │   ├── test_cfg.py
-│   │   │   ├── test_ir.py
-│   │   │   └── test_parser.py
-│   │   ├── pyproject.toml
-│   │   └── requirements.txt
-│   │
-│   ├── frontend/
-│   │   ├── src/
-│   │   │   ├── components/      # CFG visualizer, node rendering, instruction tables
-│   │   │   ├── pages/           # Main analyzer views
-│   │   │   ├── services/        # API client
-│   │   │   ├── types/           # TypeScript core IR definitions
-│   │   │   └── index.css
-│   │   ├── package.json
-│   │   └── vite.config.ts
-│   │
-│   └── sample/
-│       └── validator.asm        # Benchmark disassembly fixture (126,741 lines)
-│
-└── README.md
-```
-
----
-
-## Development Phases & Roadmap
-
-| Phase | Status | Focus & Key Deliverables |
-| :--- | :--- | :--- |
-| **Phase 1: Foundation & Data Models** | **Completed** | Monorepo structure, core IR data models (`BinaryProject`, `Section`, `Function`, `Instruction`, `BasicBlock`, `CFG`, `CFGEdge`, `Reference`), abstract module interfaces, logging, configuration, pytest suite with `validator.asm` fixture, and Vite frontend integration. |
-| **Phase 2: Recovery & Advanced CFG** | *Upcoming* | Deep function boundary refinement, indirect jump target resolution (switch tables, jump tables), and exception handling block support. |
-| **Phase 3: Analysis & Metrics** | *Upcoming* | Data flow analysis, def-use chains, dominant block analysis, loop detection, and advanced reachability metrics. |
-| **Phase 4: Function Identification** | *Upcoming* | Opcode n-gram fingerprinting, CFG graph isomorphism hashing, FLIRT-style library function signature matching for stripped binaries. |
-| **Phase 5: Interactive UI & Visualizations** | *Upcoming* | Expanded React Flow layout options, interactive call graph navigation, and side-by-side assembly decompilation view. |
+7. **`CandidatePrediction`**: Candidate name prediction with confidence, category, and evidence.
+8. **`IdentificationResult`**: Multi-stage identification result storing recovered symbol name, address, top prediction, confidence, evidence bullets, and alternative predictions.
 
 ---
 
@@ -146,7 +141,7 @@ cd staticcfg/backend
 # Install dependencies
 pip install -r requirements.txt
 
-# Run pytest unit test suite
+# Run pytest unit test suite (27 tests)
 pytest
 
 # Launch FastAPI development server

@@ -35,7 +35,8 @@ async def lifespan(app: FastAPI):
                 parser = ASMParser()
                 project = parser.parse_content(content, filename=filename)
                 if project.functions:
-                    analysis = CacheManager.build_from_project(project, file_hash)
+                    from app.analysis.engine import AnalysisEngine
+                    analysis = AnalysisEngine().analyze(project, file_hash)
                     CacheManager.save_cache(filename, file_hash, analysis)
                     store = SessionStore.get_instance()
                     store.set_active_analysis("sample-validator", analysis)

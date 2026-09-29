@@ -44,7 +44,8 @@ async def analyze_asm_file(file: UploadFile = File(...)):
             detail="No recognizable x86-64 objdump-style instructions or functions were found."
         )
 
-    analysis = CacheManager.build_from_project(project, file_hash)
+    from app.analysis.engine import AnalysisEngine
+    analysis = AnalysisEngine().analyze(project, file_hash)
     CacheManager.save_cache(filename, file_hash, analysis)
 
     file_id = str(uuid.uuid4())

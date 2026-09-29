@@ -136,3 +136,30 @@ Disassembly of section .text:
     assert caller_rel.callees[0].function_name == "callee_func"
     assert len(callee_rel.callers) == 1
     assert callee_rel.callers[0].function_name == "caller_func"
+
+def test_analysis_engine_orchestration():
+    from app.analysis.engine import AnalysisEngine
+
+    asm = """
+Disassembly of section .text:
+
+0000000000401000 <caller_func>:
+  401000:	e8 10 00 00 00       	call   401015 <callee_func>
+  401005:	c3                   	ret    
+
+0000000000401015 <callee_func>:
+  401015:	c3                   	ret    
+"""
+    parser = ASMParser()
+    project = parser.parse_content(asm, filename="test_engine.asm")
+
+    engine = AnalysisEngine()
+    analysis = engine.analyze(project, content_hash="hash123")
+
+    assert analysis.file == "test_engine.asm"
+    assert analysis.function_count == 2
+    assert "caller_func" in analysis.cfgs
+    assert "callee_func" in analysis.cfgs
+    assert "caller_func" in analysis.fingerprints
+    assert "caller_func" in analysis.identifications
+    assert len(analysis.callgraph.edges) == 1

@@ -29,3 +29,18 @@ _Avoid_: Link, transition, connection
 **Back-Edge**:
 A directed edge whose target address is an ancestor in sequential control flow or dominates its source, indicating a loop.
 _Avoid_: Loop jump, cycle link, backward jump
+
+### Function Identification & Semantic Recovery
+
+**Recovered Signature**:
+A deduced high-level C-style specification for a stripped function, comprising a semantic name, return type, parameter list, calling convention, and explanatory rationale.
+_Avoid_: Guessed signature, predicted type, function header
+
+**Parameter Signature**:
+A deduced function argument specifying an identified name, semantic data type, physical register or stack binding, and operational purpose.
+_Avoid_: Argument slot, param, input register
+
+**Nested Callee Context**:
+The structural and semantic properties (disassembly, basic blocks, known signatures) of a subroutine invoked from within an analyzed function, inspected recursively to deduce caller semantics.
+_Avoid_: Child function code, subcall snippet, helper code
+

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Upload, GitFork, Activity, AlertTriangle, FileCode } from 'lucide-react';
+import { Upload, GitFork, Activity, AlertTriangle, FileCode, RefreshCw } from 'lucide-react';
 
 interface ToolbarProps {
   activeFile: string | null;
@@ -11,6 +11,9 @@ interface ToolbarProps {
   onToggleUnreachable: () => void;
   onOpenUploadModal: () => void;
   onOpenCallGraph: () => void;
+  loopCount?: number;
+  highlightLoops?: boolean;
+  onToggleHighlightLoops?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -23,6 +26,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onToggleUnreachable,
   onOpenUploadModal,
   onOpenCallGraph,
+  loopCount,
+  highlightLoops,
+  onToggleHighlightLoops,
 }) => {
   return (
     <header
@@ -76,6 +82,33 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>Complexity:</span>
               <span style={{ fontWeight: 700, color: 'var(--color-accent)' }}>{cyclomaticComplexity}</span>
             </div>
+          )}
+
+          {loopCount !== undefined && loopCount > 0 && (
+            <button
+              onClick={onToggleHighlightLoops}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                backgroundColor: highlightLoops ? '#452200' : '#2d1b00',
+                border: highlightLoops ? '1px solid #f59e0b' : '1px solid #f59e0b55',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                color: '#f59e0b',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                fontSize: '10px',
+                fontWeight: 600,
+                boxShadow: highlightLoops ? '0 0 8px rgba(245, 158, 11, 0.3)' : 'none',
+              }}
+              title="Click to isolate and highlight natural loop structures on the CFG canvas"
+            >
+              <RefreshCw size={12} color="#f59e0b" />
+              <span>Loops:</span>
+              <span style={{ fontWeight: 700 }}>{loopCount}</span>
+              <span style={{ fontSize: '9px', opacity: 0.85 }}>{highlightLoops ? '(Isolate ON)' : ''}</span>
+            </button>
           )}
 
           {unreachableCount > 0 && (

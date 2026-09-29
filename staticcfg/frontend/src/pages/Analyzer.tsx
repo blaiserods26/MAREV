@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
-import { FunctionSummary, CFG, BasicBlock, AnalysisResponse, CallGraph } from '../types/cfg';
-import { getFunctions, getFunctionCFG, checkHealth, getCallGraph } from '../services/api';
+import { FunctionSummary, CFG, BasicBlock, AnalysisResponse, CallGraph, FunctionAnalysisReport } from '../types/cfg';
+import { getFunctions, getFunctionCFG, checkHealth, getCallGraph, getFunctionAnalysis } from '../services/api';
 import { Toolbar } from '../components/Toolbar';
 import { FunctionList } from '../components/FunctionList';
 import { CFGCanvas } from '../components/CFGCanvas';
@@ -17,6 +17,8 @@ export const Analyzer: React.FC = () => {
   const [selectedFunction, setSelectedFunction] = useState<string | null>(null);
   const [cfg, setCfg] = useState<CFG | null>(null);
   const [selectedBlock, setSelectedBlock] = useState<BasicBlock | null>(null);
+  const [analysisReport, setAnalysisReport] = useState<FunctionAnalysisReport | null>(null);
+  const [highlightLoops, setHighlightLoops] = useState(false);
 
   const [isLoadingFunctions, setIsLoadingFunctions] = useState(false);
   const [isLoadingCFG, setIsLoadingCFG] = useState(false);
@@ -60,15 +62,24 @@ export const Analyzer: React.FC = () => {
     });
   }, [loadFunctions]);
 
-  // Load CFG when selected function changes (with 0ms client-side cache)
+  // Load CFG and Analysis when selectedFunction changes
   useEffect(() => {
     if (!selectedFunction) {
       setCfg(null);
       setSelectedBlock(null);
+      setAnalysisReport(null);
       return;
     }
 
     setSelectedBlock(null);
+
+    // Fetch deep analysis report for dominance and loop inspection
+    getFunctionAnalysis(selectedFunction)
+      .then((report) => setAnalysisReport(report))
+      .catch((err) => {
+        console.error(`Failed to load analysis for ${selectedFunction}:`, err);
+        setAnalysisReport(null);
+      });
 
     // Instant load from client-side memory cache if available
     if (cfgCache.current.has(selectedFunction)) {
@@ -123,6 +134,9 @@ export const Analyzer: React.FC = () => {
         onToggleUnreachable={() => setShowUnreachable(!showUnreachable)}
         onOpenUploadModal={() => setIsUploadOpen(true)}
         onOpenCallGraph={handleOpenCallGraph}
+        loopCount={cfg ? cfg.edges.filter((e) => e.is_back_edge).length : 0}
+        highlightLoops={highlightLoops}
+        onToggleHighlightLoops={() => setHighlightLoops(!highlightLoops)}
       />
 
       {/* Main Workspace Layout */}
@@ -167,6 +181,8 @@ export const Analyzer: React.FC = () => {
                 selectedBlockId={selectedBlock ? selectedBlock.id : null}
                 onSelectBlock={(block) => setSelectedBlock(block)}
                 showUnreachable={showUnreachable}
+                dominatorInfo={analysisReport?.dominators || null}
+                highlightLoops={highlightLoops}
               />
             </ReactFlowProvider>
           </div>
@@ -179,6 +195,7 @@ export const Analyzer: React.FC = () => {
             onSelectBlock={(block) => setSelectedBlock(block)}
             onSelectFunction={(name) => setSelectedFunction(name)}
             onClose={() => setSelectedBlock(null)}
+            analysisReport={analysisReport}
           />
         </div>
       </div>

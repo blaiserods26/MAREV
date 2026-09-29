@@ -39,3 +39,15 @@ def test_get_cfg_main(api_client: TestClient, sample_asm_snippet):
     cfg = response.json()
     assert cfg.get("function") == "main" or cfg.get("function_name") == "main"
     assert len(cfg["nodes"]) > 0
+
+def test_get_functions_with_prediction_and_search(api_client: TestClient, sample_asm_snippet):
+    file_bytes = sample_asm_snippet.encode("utf-8")
+    files = {"file": ("test.asm", io.BytesIO(file_bytes), "text/plain")}
+    api_client.post("/api/analyze", files=files)
+
+    response = api_client.get("/api/functions?query=main")
+    assert response.status_code == 200
+    funcs = response.json()
+    assert len(funcs) == 1
+    assert funcs[0]["name"] == "main"
+    assert "semantic_category" in funcs[0]

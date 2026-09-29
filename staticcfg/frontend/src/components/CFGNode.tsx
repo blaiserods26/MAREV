@@ -6,6 +6,10 @@ export interface CFGNodeData extends Record<string, unknown> {
   block: BasicBlock;
   isSelected?: boolean;
   isUnreachable?: boolean;
+  isLoopHeader?: boolean;
+  isIdom?: boolean;
+  isFrontier?: boolean;
+  isDimmed?: boolean;
 }
 
 const CONTROL_FLOW_MNEMONICS = new Set([
@@ -26,15 +30,27 @@ export const CFGNode: React.FC<NodeProps> = memo(({ data, selected }) => {
   const nodeData = data as unknown as CFGNodeData;
   const block = nodeData.block;
   const isUnreachable = nodeData.isUnreachable;
+  const isLoopHeader = nodeData.isLoopHeader;
+  const isIdom = nodeData.isIdom;
+  const isFrontier = nodeData.isFrontier;
+  const isDimmed = nodeData.isDimmed;
   const isSelected = selected || nodeData.isSelected;
 
   const isSpecial = block.id === 'EXIT' || block.id === 'UNKNOWN' || block.id.startsWith('EXTERNAL_');
 
   let borderStyle = '1px solid var(--border-color)';
+  let boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
   let bgHeader = 'var(--bg-header)';
 
   if (isSelected) {
     borderStyle = '2px solid #58a6ff';
+    boxShadow = '0 0 14px rgba(88, 166, 255, 0.5)';
+  } else if (isIdom) {
+    borderStyle = '2px dashed #a855f7';
+    boxShadow = '0 0 12px rgba(168, 85, 247, 0.45)';
+  } else if (isFrontier) {
+    borderStyle = '2px solid #38bdf8';
+    boxShadow = '0 0 10px rgba(56, 189, 248, 0.35)';
   } else if (isUnreachable) {
     borderStyle = '1px solid #f85149';
   }
@@ -57,7 +73,8 @@ export const CFGNode: React.FC<NodeProps> = memo(({ data, selected }) => {
         backgroundColor: 'var(--bg-panel)',
         border: borderStyle,
         borderRadius: '6px',
-        boxShadow: isSelected ? '0 0 12px rgba(88, 166, 255, 0.4)' : '0 4px 12px rgba(0,0,0,0.4)',
+        boxShadow,
+        opacity: isDimmed ? 0.3 : 1,
         overflow: 'hidden',
         fontSize: '11px',
         fontFamily: 'var(--font-mono)',
@@ -77,9 +94,26 @@ export const CFGNode: React.FC<NodeProps> = memo(({ data, selected }) => {
           borderBottom: '1px solid var(--border-color)',
         }}
       >
-        <span style={{ fontWeight: 700, fontSize: '12px', color: 'var(--text-bright)' }}>
-          {block.id}
-        </span>
+        <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+          <span style={{ fontWeight: 700, fontSize: '12px', color: 'var(--text-bright)' }}>
+            {block.id}
+          </span>
+          {isLoopHeader && (
+            <span style={{ backgroundColor: '#2d1b00', color: '#f59e0b', border: '1px solid #f59e0b66', fontSize: '9px', padding: '1px 4px', borderRadius: '3px', fontWeight: 700 }}>
+              LOOP
+            </span>
+          )}
+          {isIdom && (
+            <span style={{ backgroundColor: '#2e1065', color: '#c084fc', border: '1px solid #a855f766', fontSize: '9px', padding: '1px 4px', borderRadius: '3px', fontWeight: 700 }} title="Immediate Dominator">
+              IDOM
+            </span>
+          )}
+          {isFrontier && (
+            <span style={{ backgroundColor: '#083344', color: '#38bdf8', border: '1px solid #0284c766', fontSize: '9px', padding: '1px 4px', borderRadius: '3px', fontWeight: 700 }} title="Dominance Frontier">
+              DF
+            </span>
+          )}
+        </div>
         {!isSpecial && (
           <span style={{ color: 'var(--color-address)', fontSize: '10px' }}>
             0x{block.start_address.toString(16)} → 0x{block.end_address.toString(16)}

@@ -7,8 +7,9 @@ router = APIRouter()
 
 @router.get("/functions", response_model=List[FunctionSummary])
 def get_functions(
-    query: Optional[str] = Query(None, description="Search query for function name or address"),
+    query: Optional[str] = Query(None, description="Search query for function name, address, or predicted identity"),
     section: Optional[str] = Query(None, description="Filter by section name"),
+    category: Optional[str] = Query(None, description="Filter by semantic category"),
     hide_plt: bool = Query(False, description="Hide PLT section functions"),
     hide_cold: bool = Query(False, description="Hide cold functions")
 ):
@@ -23,13 +24,19 @@ def get_functions(
     for func in analysis.functions:
         if section and func.section != section:
             continue
+        if category and func.semantic_category != category:
+            continue
         if hide_plt and (func.section == ".plt" or func.name == ".plt"):
             continue
         if hide_cold and ".cold" in func.name:
             continue
 
         if search_str:
-            if search_str not in func.name.lower() and search_str not in func.address.lower():
+            matches_name = search_str in func.name.lower()
+            matches_addr = search_str in func.address.lower()
+            matches_pred = bool(func.predicted_name and search_str in func.predicted_name.lower())
+            matches_cat = bool(func.semantic_category and search_str in func.semantic_category.lower())
+            if not (matches_name or matches_addr or matches_pred or matches_cat):
                 continue
 
         results.append(func)

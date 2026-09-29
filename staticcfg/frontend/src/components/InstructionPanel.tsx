@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BasicBlock, CFG, FunctionAnalysisReport } from '../types/cfg';
-import { getFunctionAnalysis } from '../services/api';
-import { Terminal, Code, Cpu, X, ChevronRight, Hash, ArrowUpRight, ArrowDownLeft, Shield, AlertTriangle } from 'lucide-react';
+import { getFunctionAnalysis, agentIdentifyFunction } from '../services/api';
+import { Terminal, Code, Cpu, X, ChevronRight, Hash, ArrowUpRight, ArrowDownLeft, Shield, AlertTriangle, Sparkles, CheckCircle2, Bot, Loader2 } from 'lucide-react';
+
 
 interface InstructionPanelProps {
   block: BasicBlock | null;
@@ -10,6 +11,7 @@ interface InstructionPanelProps {
   onSelectBlock: (block: BasicBlock | null) => void;
   onSelectFunction: (name: string) => void;
   onClose: () => void;
+  analysisReport?: FunctionAnalysisReport | null;
 }
 
 export const InstructionPanel: React.FC<InstructionPanelProps> = ({
@@ -19,11 +21,37 @@ export const InstructionPanel: React.FC<InstructionPanelProps> = ({
   onSelectBlock,
   onSelectFunction,
   onClose,
+  analysisReport: analysisReportProp,
 }) => {
   const [activeTab, setActiveTab] = useState<'block' | 'raw' | 'analysis'>('block');
-  const [analysisReport, setAnalysisReport] = useState<FunctionAnalysisReport | null>(null);
+  const [internalReport, setInternalReport] = useState<FunctionAnalysisReport | null>(null);
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
+  const [isAnalyzingWithAgent, setIsAnalyzingWithAgent] = useState(false);
+  const [agentError, setAgentError] = useState<string | null>(null);
   const blockRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const analysisReport = analysisReportProp ?? internalReport;
+
+  const handleRunAgentIdentification = async () => {
+    if (!functionName) return;
+    setIsAnalyzingWithAgent(true);
+    setAgentError(null);
+    try {
+      const updatedIdent = await agentIdentifyFunction(functionName);
+      if (analysisReport) {
+        setInternalReport({
+          ...analysisReport,
+          identification: updatedIdent
+        });
+      }
+    } catch (err: any) {
+      console.error("Agent identification error:", err);
+      setAgentError(err.response?.data?.detail || err.message || "Agent reverse engineering failed.");
+    } finally {
+      setIsAnalyzingWithAgent(false);
+    }
+  };
+
 
   // Auto-scroll to selected block in Raw Assembly view
   useEffect(() => {
@@ -32,19 +60,23 @@ export const InstructionPanel: React.FC<InstructionPanelProps> = ({
     }
   }, [block, activeTab]);
 
-  // Fetch analysis report when function changes or analysis tab is opened
+  // Fetch analysis report when function changes if not provided externally
   useEffect(() => {
-    if (functionName && activeTab === 'analysis') {
+    if (analysisReportProp) {
+      setInternalReport(analysisReportProp);
+      return;
+    }
+    if (functionName) {
       setIsLoadingAnalysis(true);
       getFunctionAnalysis(functionName)
-        .then((report) => setAnalysisReport(report))
+        .then((report) => setInternalReport(report))
         .catch((err) => {
           console.error('Failed to load analysis report:', err);
-          setAnalysisReport(null);
+          setInternalReport(null);
         })
         .finally(() => setIsLoadingAnalysis(false));
     }
-  }, [functionName, activeTab]);
+  }, [functionName, analysisReportProp]);
 
   if (!cfg && !block) {
     return (
@@ -68,11 +100,12 @@ export const InstructionPanel: React.FC<InstructionPanelProps> = ({
 
   const isSpecial = block && (block.id === 'EXIT' || block.id === 'UNKNOWN' || block.id.startsWith('EXTERNAL_'));
   const fp = analysisReport?.fingerprint;
+  const ident = analysisReport?.identification;
 
   return (
     <div
       style={{
-        height: '240px',
+        height: '270px',
         backgroundColor: 'var(--bg-panel)',
         borderTop: '1px solid var(--border-color)',
         display: 'flex',
@@ -152,19 +185,14 @@ export const InstructionPanel: React.FC<InstructionPanelProps> = ({
                 gap: '6px',
               }}
             >
-              <Cpu size={13} color="#3fb950" />
-              Analysis & Fingerprint
+              <Sparkles size={13} color="#3fb950" />
+              Identification & Analysis
             </button>
           </div>
 
           {functionName && (
             <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>
-              Function: <strong style={{ color: 'var(--text-main)' }}>{functionName}</strong>
-            </span>
-          )}
-          {block && !isSpecial && (
-            <span style={{ color: 'var(--color-address)', fontSize: '10px' }}>
-              Range: 0x{block.start_address.toString(16)} → 0x{block.end_address.toString(16)}
+              Recovered Symbol: <strong style={{ color: 'var(--text-main)' }}>{ident?.recovered_name || functionName}</strong> ({ident?.formatted_address || '0x0'})
             </span>
           )}
         </div>
@@ -201,16 +229,116 @@ export const InstructionPanel: React.FC<InstructionPanelProps> = ({
               Synthetic node {block.id}. No internal instructions.
             </div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-              <thead>
-                <tr style={{ color: 'var(--text-muted)', borderBottom: '1px solid #21262d', fontSize: '10px', backgroundColor: 'var(--bg-dark)' }}>
-                  <th style={{ padding: '4px 12px', width: '90px' }}>Address</th>
-                  <th style={{ padding: '4px 12px', width: '160px' }}>Hex Bytes</th>
-                  <th style={{ padding: '4px 12px', width: '100px' }}>Mnemonic</th>
-                  <th style={{ padding: '4px 12px' }}>Operands</th>
-                  <th style={{ padding: '4px 12px', width: '220px' }}>Comment</th>
-                </tr>
-              </thead>
+            <>
+              {/* Dominator & Loop Context Strip */}
+              {analysisReport?.dominators && (
+                <div
+                  style={{
+                    padding: '6px 14px',
+                    backgroundColor: '#131920',
+                    borderBottom: '1px solid var(--border-color)',
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    gap: '14px',
+                    fontSize: '11px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>Immediate Dominator (idom):</span>
+                    {analysisReport.dominators.immediate_dominators[block.id] ? (
+                      <button
+                        onClick={() => {
+                          const idom = analysisReport.dominators.immediate_dominators[block.id];
+                          const target = cfg?.nodes.find((n) => n.id === idom);
+                          if (target) onSelectBlock(target);
+                        }}
+                        style={{
+                          backgroundColor: '#2e1065',
+                          border: '1px solid #a855f7',
+                          color: '#c084fc',
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          fontFamily: 'var(--font-mono)',
+                        }}
+                        title="Jump to Immediate Dominator"
+                      >
+                        {analysisReport.dominators.immediate_dominators[block.id]}
+                      </button>
+                    ) : (
+                      <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '10px' }}>None (Entry Block)</span>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>Dominance Frontier (DF):</span>
+                    {analysisReport.dominators.dominance_frontiers[block.id] &&
+                    analysisReport.dominators.dominance_frontiers[block.id].length > 0 ? (
+                      analysisReport.dominators.dominance_frontiers[block.id].map((df) => (
+                        <button
+                          key={df}
+                          onClick={() => {
+                            const target = cfg?.nodes.find((n) => n.id === df);
+                            if (target) onSelectBlock(target);
+                          }}
+                          style={{
+                            backgroundColor: '#083344',
+                            border: '1px solid #0284c7',
+                            color: '#38bdf8',
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            fontFamily: 'var(--font-mono)',
+                          }}
+                          title="Jump to Dominance Frontier Node"
+                        >
+                          {df}
+                        </button>
+                      ))
+                    ) : (
+                      <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '10px' }}>Empty ∅</span>
+                    )}
+                  </div>
+
+                  {analysisReport.loops?.loops &&
+                    analysisReport.loops.loops
+                      .filter((l) => l.blocks.includes(block.id))
+                      .map((l, idx) => (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span style={{ color: '#f59e0b', fontSize: '10px', fontWeight: 600 }}>Loop:</span>
+                          <span
+                            style={{
+                              backgroundColor: '#2d1b00',
+                              border: '1px solid #f59e0b66',
+                              color: '#f59e0b',
+                              padding: '1px 6px',
+                              borderRadius: '4px',
+                              fontSize: '10px',
+                              fontFamily: 'var(--font-mono)',
+                            }}
+                          >
+                            header {l.header} (tail {l.tail})
+                          </span>
+                        </div>
+                      ))}
+                </div>
+              )}
+
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ color: 'var(--text-muted)', borderBottom: '1px solid #21262d', fontSize: '10px', backgroundColor: 'var(--bg-dark)' }}>
+                    <th style={{ padding: '4px 12px', width: '90px' }}>Address</th>
+                    <th style={{ padding: '4px 12px', width: '160px' }}>Hex Bytes</th>
+                    <th style={{ padding: '4px 12px', width: '100px' }}>Mnemonic</th>
+                    <th style={{ padding: '4px 12px' }}>Operands</th>
+                    <th style={{ padding: '4px 12px', width: '220px' }}>Comment</th>
+                  </tr>
+                </thead>
               <tbody>
                 {block.instructions.map((inst, idx) => (
                   <tr
@@ -239,9 +367,10 @@ export const InstructionPanel: React.FC<InstructionPanelProps> = ({
                 ))}
               </tbody>
             </table>
-          )
+          </>
+        )
         ) : activeTab === 'raw' ? (
-          /* Tab 2: Raw Assembly View with Synchronized Block Highlighting */
+          /* Tab 2: Raw Assembly View */
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {cfg?.nodes.map((nodeBlock) => {
               const isSelectedBlock = block?.id === nodeBlock.id;
@@ -312,18 +441,260 @@ export const InstructionPanel: React.FC<InstructionPanelProps> = ({
             })}
           </div>
         ) : (
-          /* Tab 3: Function Analysis & Fingerprint Dashboard */
+          /* Tab 3: Function Identification & Analysis Dashboard */
           isLoadingAnalysis ? (
             <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-              Computing dominators, loops, back-edges, and function fingerprint...
+              Executing multi-stage function identification pipeline...
             </div>
           ) : !analysisReport ? (
             <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
               Failed to load analysis report.
             </div>
           ) : (
-            <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {/* Summary Cards Row */}
+            <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* Function Identification Pipeline Card */}
+              {ident && (
+                <div
+                  style={{
+                    backgroundColor: '#161b22',
+                    border: '1px solid #30363d',
+                    borderRadius: '6px',
+                    padding: '12px 16px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ fontSize: '10px', color: 'var(--text-muted)', letterSpacing: '0.5px' }}>
+                        RECOVERED FUNCTION IDENTIFIER: <strong style={{ color: '#58a6ff' }}>{ident.recovered_name}</strong> ({ident.formatted_address})
+                      </div>
+                      <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-bright)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        Predicted Name: <span style={{ color: '#2f81f7', textDecoration: 'underline' }}>{ident.top_prediction?.predicted_name || ident.recovered_name}</span>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <button
+                        onClick={handleRunAgentIdentification}
+                        disabled={isAnalyzingWithAgent}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          backgroundColor: isAnalyzingWithAgent ? '#30363d' : '#6e40c9',
+                          color: '#ffffff',
+                          border: '1px solid #8957e5',
+                          borderRadius: '6px',
+                          padding: '4px 12px',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          cursor: isAnalyzingWithAgent ? 'not-allowed' : 'pointer',
+                          boxShadow: '0 2px 8px rgba(110, 64, 201, 0.4)',
+                          transition: 'all 0.2s ease',
+                        }}
+                      >
+                        {isAnalyzingWithAgent ? (
+                          <>
+                            <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                            <span>Agent Analyzing CFG...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles size={13} color="#f0883e" />
+                            <span>{ident.recovered_signature ? 'Re-Analyze with AI Agent' : 'Analyze with AI Agent'}</span>
+                          </>
+                        )}
+                      </button>
+
+                      <span
+                        style={{
+                          backgroundColor: '#1f6beb33',
+                          color: '#58a6ff',
+                          border: '1px solid #1f6beb66',
+                          borderRadius: '12px',
+                          padding: '3px 10px',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        <CheckCircle2 size={13} color="#3fb950" />
+                        Confidence: {Math.round((ident.top_prediction?.confidence || 0) * 100)}%
+                      </span>
+
+                      <span
+                        style={{
+                          backgroundColor: '#23863633',
+                          color: '#3fb950',
+                          border: '1px solid #23863666',
+                          borderRadius: '4px',
+                          padding: '3px 8px',
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        Category: {ident.semantic_category}
+                      </span>
+                    </div>
+                  </div>
+
+                  {agentError && (
+                    <div style={{ backgroundColor: '#ff7b7222', border: '1px solid #ff7b7266', borderRadius: '4px', padding: '6px 10px', color: '#ff7b72', fontSize: '11px' }}>
+                      {agentError}
+                    </div>
+                  )}
+
+                  {/* Recovered Typed C-Style Signature Card */}
+                  {ident.recovered_signature && (
+                    <div style={{
+                      backgroundColor: '#090d13',
+                      border: '1px solid #8957e5aa',
+                      borderRadius: '6px',
+                      padding: '12px 14px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#d2a8ff', fontSize: '11px', fontWeight: 700 }}>
+                          <Bot size={15} color="#bc8cff" />
+                          <span>AGENT RECOVERED C SIGNATURE</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>ABI:</span>
+                          <span style={{ fontSize: '10px', backgroundColor: '#21262d', padding: '2px 6px', borderRadius: '4px', color: '#58a6ff' }}>
+                            {ident.recovered_signature.calling_convention}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* C Prototype syntax box */}
+                      <div style={{
+                        backgroundColor: '#161b22',
+                        border: '1px solid #30363d',
+                        borderRadius: '4px',
+                        padding: '8px 12px',
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: '12px',
+                        color: '#7ee787',
+                        fontWeight: 600,
+                        overflowX: 'auto',
+                        letterSpacing: '0.3px',
+                      }}>
+                        <span style={{ color: '#ff7b72' }}>{ident.recovered_signature.return_type}</span>{' '}
+                        <span style={{ color: '#d2a8ff' }}>{ident.recovered_signature.name}</span>
+                        (
+                        {ident.recovered_signature.parameters.map((p, idx) => (
+                          <span key={idx}>
+                            <span style={{ color: '#79c0ff' }}>{p.type_name}</span>{' '}
+                            <span style={{ color: '#e6edf3' }}>{p.name}</span>
+                            {p.register_or_location && (
+                              <span style={{ color: '#8b949e', fontSize: '10px' }}> /* {p.register_or_location} */</span>
+                            )}
+                            {idx < ident.recovered_signature!.parameters.length - 1 ? ', ' : ''}
+                          </span>
+                        ))}
+                        )
+                      </div>
+
+                      {/* Summary description */}
+                      <div style={{ color: '#c9d1d9', fontSize: '11px', fontStyle: 'italic' }}>
+                        "{ident.recovered_signature.summary}"
+                      </div>
+
+                      {/* Parameters Breakdown */}
+                      {ident.recovered_signature.parameters.length > 0 && (
+                        <div style={{ marginTop: '2px' }}>
+                          <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px', letterSpacing: '0.5px' }}>
+                            DEDUCED PARAMETERS:
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '6px' }}>
+                            {ident.recovered_signature.parameters.map((p, idx) => (
+                              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', backgroundColor: '#161b22', padding: '4px 8px', borderRadius: '4px', border: '1px solid #21262d' }}>
+                                <span style={{ color: '#ff7b72', fontWeight: 700, minWidth: '45px' }}>{p.register_or_location || `arg${idx}`}</span>
+                                <span style={{ color: '#79c0ff' }}>{p.type_name}</span>
+                                <span style={{ color: '#f0883e', fontWeight: 600 }}>{p.name}</span>
+                                {p.description && <span style={{ color: '#8b949e', fontSize: '10px' }}>— {p.description}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Nested Callees Explored */}
+                      {ident.recovered_signature.nested_callees_analyzed && ident.recovered_signature.nested_callees_analyzed.length > 0 && (
+                        <div style={{ marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Nested Callees Explored:</span>
+                          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                            {ident.recovered_signature.nested_callees_analyzed.map((cName, idx) => (
+                              <span
+                                key={idx}
+                                onClick={() => onSelectFunction(cName)}
+                                style={{
+                                  fontSize: '10px',
+                                  backgroundColor: '#1f6beb33',
+                                  color: '#58a6ff',
+                                  border: '1px solid #1f6beb66',
+                                  borderRadius: '4px',
+                                  padding: '1px 6px',
+                                  cursor: 'pointer',
+                                  textDecoration: 'underline'
+                                }}
+                              >
+                                {cName}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+
+                  {/* Evidence & Alternatives Grid */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '16px', borderTop: '1px solid #21262d', paddingTop: '8px' }}>
+                    {/* Explainable Evidence Bullet List */}
+                    <div>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-bright)', marginBottom: '4px' }}>
+                        Explainable Evidence:
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                        {(ident.evidence_summary || []).map((ev, i) => (
+                          <div key={i} style={{ color: '#7ee787', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
+                            {ev}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Alternatives Table */}
+                    <div>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-bright)', marginBottom: '4px' }}>
+                        Alternative Candidates:
+                      </div>
+                      {ident.alternative_candidates && ident.alternative_candidates.length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {ident.alternative_candidates.map((alt, i) => (
+                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-main)', fontSize: '10px' }}>
+                              <span>{alt.predicted_name}</span>
+                              <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>{Math.round(alt.confidence * 100)}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{ color: 'var(--text-muted)', fontSize: '10px', fontStyle: 'italic' }}>No alternatives found.</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Structural Metrics */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '8px' }}>
                 <div style={{ backgroundColor: 'var(--bg-dark)', padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border-color)' }}>
                   <div style={{ color: 'var(--text-muted)', fontSize: '9px' }}>INSTRUCTIONS</div>

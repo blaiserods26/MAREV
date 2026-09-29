@@ -112,6 +112,7 @@ class CFGEdge(BaseModel):
     target: str
     type: EdgeType = EdgeType.FALLTHROUGH
     condition: Optional[str] = None
+    is_back_edge: bool = False
 
 class CFG(BaseModel):
     """Control Flow Graph for a single function."""
