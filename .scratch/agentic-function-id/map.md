@@ -21,6 +21,8 @@ Replace the unimplemented ML interface with an **Agentic AI Function Identificat
 - [03: Pipeline Integration and Cascading Architecture](file:///c:/Users/blais/Desktop/AI%20Agents/CodetoCFG/.scratch/agentic-function-id/issues/03-pipeline-integration-and-cascade.md): On-demand targeted execution triggered per-function from UI to handle huge codebases without latency/cost blowout.
 - [04: Function Signature & Semantic Domain Model](file:///c:/Users/blais/Desktop/AI%20Agents/CodetoCFG/.scratch/agentic-function-id/issues/04-signature-schema-and-ir.md): Typed `RecoveredSignature` model with C prototype, parameter locations/types, calling convention, and reasoning.
 - [05: Tracer Bullet: End-to-End On-Demand Agent Signature Recovery](file:///c:/Users/blais/Desktop/AI%20Agents/CodetoCFG/.scratch/agentic-function-id/issues/05-tracer-bullet-agent-signature-recovery.md): Complete vertical slice from disassembly to UI delivering on-demand signature and parameter deduction with deterministic inspection tools and pluggable providers.
+- [06: Nested Subroutine & Callee Code Exploration](file:///c:/Users/blais/Desktop/AI%20Agents/CodetoCFG/.scratch/agentic-function-id/issues/06-nested-subroutine-callee-exploration.md): Recursive callee traversal and bottom-up semantic composition, enabling accurate identification of wrapper and dispatch functions via child subroutine analysis.
+
 
 
 ## Not yet specified

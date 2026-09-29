@@ -73,10 +73,16 @@ class FunctionInspectionToolset:
         return callees
 
 
-    def fetch_nested_or_callee_code(self, callee_name: str, max_instructions: int = 50) -> Dict[str, Any]:
+    def fetch_nested_or_callee_code(
+        self,
+        callee_name: str,
+        max_instructions: int = 50,
+        current_depth: int = 0,
+        max_depth: int = 2
+    ) -> Dict[str, Any]:
         """
-        Retrieves the instruction stream and CFG structure of a nested subroutine / callee.
-        Allows the agent to perform bottom-up semantic composition.
+        Retrieves the instruction stream, CFG metrics, and child calls of a nested subroutine / callee.
+        Supports recursive exploration up to max_depth for deep bottom-up semantic composition.
         """
         resolved = self._resolve_function_name(callee_name)
         if not resolved or resolved not in self.analysis.cfgs:
@@ -104,16 +110,36 @@ class FunctionInspectionToolset:
             if total_insts > max_instructions:
                 break
 
+        # Recursive exploration of nested child callees if depth permits
+        nested_children = []
+        if current_depth < max_depth:
+            child_callees = self.get_callees(resolved)
+            for cc in child_callees[:2]:  # Check up to 2 second-level child calls
+                child_name = cc["function_name"]
+                if child_name != resolved:  # Prevent direct recursive loop
+                    nested_res = self.fetch_nested_or_callee_code(
+                        child_name,
+                        max_instructions=25,
+                        current_depth=current_depth + 1,
+                        max_depth=max_depth
+                    )
+                    if "error" not in nested_res:
+                        nested_children.append(nested_res)
+
         return {
             "function_name": resolved,
             "block_count": len(cfg.nodes),
             "cyclomatic_complexity": cfg.cyclomatic_complexity,
+            "loop_count": fp.loop_count if fp else 0,
             "strings": fp.string_references if fp else [],
             "constants": [hex(c) for c in (fp.constants if fp else [])],
             "known_identity": ident.top_prediction.predicted_name if (ident and ident.top_prediction) else None,
+            "recovered_signature": ident.recovered_signature.c_prototype if (ident and ident.recovered_signature) else None,
             "blocks": blocks_summary,
+            "nested_children": nested_children,
             "truncated": total_insts > max_instructions,
         }
+
 
     def inspect_function(self, func_name: str) -> Dict[str, Any]:
         """

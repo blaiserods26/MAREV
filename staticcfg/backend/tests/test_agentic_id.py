@@ -105,3 +105,52 @@ def test_api_agent_endpoints(analyzed_session):
     # 3. Test 404 on non-existent function
     missing_resp = client.post("/api/functions/non_existent_func/agent-identify")
     assert missing_resp.status_code == 404
+
+def test_bottom_up_callee_deduction():
+    """
+    Tests that the agent inspects child/nested functions and uses that context
+    to deduce composite semantics for a wrapper caller.
+    """
+    nested_asm = """
+file format elf64-x86-64
+
+Disassembly of section .text:
+
+0000000000402000 <sub_caller_wrapper>:
+  402000:	55                   	push   %rbp
+  402001:	48 89 e5             	mov    %rsp,%rbp
+  402004:	48 89 7d f8          	mov    %rdi,-0x8(%rbp)
+  402008:	48 89 75 f0          	mov    %rsi,-0x10(%rbp)
+  40200c:	48 8b 75 f0          	mov    -0x10(%rbp),%rsi
+  402010:	48 8b 7d f8          	mov    -0x8(%rbp),%rdi
+  402014:	e8 17 00 00 00       	call   402030 <sub_sha256_inner>
+  402019:	85 c0                	test   %eax,%eax
+  40201b:	74 05                	je     402022 <sub_caller_wrapper+0x22>
+  40201d:	b8 01 00 00 00       	mov    $0x1,%eax
+  402022:	5d                   	pop    %rbp
+  402023:	c3                   	ret
+
+0000000000402030 <sub_sha256_inner>:
+  402030:	55                   	push   %rbp
+  402031:	48 89 e5             	mov    %rsp,%rbp
+  402034:	b8 98 2f 8a 42       	mov    $0x428a2f98,%eax
+  402039:	35 01 23 45 67       	xor    $0x67452301,%eax
+  40203e:	5d                   	pop    %rbp
+  40203f:	c3                   	ret
+"""
+    parser = ASMParser()
+    project = parser.parse_content(nested_asm, filename="test_nested.asm")
+    analysis = AnalysisEngine().analyze(project, "hash_nested_test")
+
+    provider = MockDeterministicProvider()
+    identifier = AgenticFunctionIdentifier(analysis, provider=provider)
+    result = identifier.identify_function("sub_caller_wrapper")
+
+    assert result.recovered_name == "sub_caller_wrapper"
+    assert result.recovered_signature is not None
+    sig = result.recovered_signature
+    # Deduced composite signature from nested callee
+    assert "checksum" in sig.name or "payload" in sig.name or "validate" in sig.name or "verify" in sig.name
+    assert "sub_sha256_inner" in sig.nested_callees_analyzed
+    assert len(sig.parameters) >= 1
+
