@@ -194,14 +194,15 @@ def test_env_key_storage_and_fetching(tmp_path, monkeypatch):
     from app.function_id.agent.providers.gemini import GoogleGeminiProvider
     from app.function_id.agent.providers import get_active_provider_info
 
-    # Verify Gemini provider is available when key is set
-    provider = GoogleGeminiProvider()
+    monkeypatch.setenv("GEMINI_API_KEY", "AIzaSyTestKey1234567890")
+    provider = GoogleGeminiProvider(api_key="AIzaSyTestKey1234567890")
     assert provider.is_available() is True
     assert provider.api_key != ""
 
     info = get_active_provider_info()
     assert info["gemini_configured"] is True
     assert "..." in info["gemini_masked_key"]
+
 
 def test_api_save_key_endpoint():
     """

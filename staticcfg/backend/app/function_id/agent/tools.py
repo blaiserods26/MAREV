@@ -230,11 +230,61 @@ class FunctionInspectionToolset:
             "blocks": blocks_repr,
         }
 
+    def get_complete_function_asm(self, func_name: str, annotate_nested_calls: bool = True) -> str:
+        """
+        Extracts the complete, unbroken linear assembly instructions for a function.
+        When annotate_nested_calls is True, annotates call instructions with references
+        to nested subroutines.
+        """
+        resolved = self._resolve_function_name(func_name)
+        if not resolved or resolved not in self.analysis.cfgs:
+            return f"; Function '{func_name}' not found in active CFGs."
+
+        cfg = self.analysis.cfgs[resolved]
+        sorted_blocks = sorted(
+            cfg.nodes,
+            key=lambda b: b.start_address
+        ) if isinstance(cfg.nodes, list) else sorted(cfg.nodes.values(), key=lambda b: b.start_address)
+
+        entry_addr = sorted_blocks[0].start_address if sorted_blocks else 0
+        cleaned = resolved.strip("<>")
+        lines = [f"{entry_addr:016x} <{cleaned}>:"]
+
+        for block in sorted_blocks:
+            for inst in block.instructions:
+                addr_hex = f"{inst.address:x}"
+                base_line = f"  {addr_hex:>6}: {inst.mnemonic:<7} {inst.operands}".rstrip()
+                if inst.comment:
+                    base_line += f"        # {inst.comment}"
+
+                # Annotate nested subroutine calls
+                if annotate_nested_calls and inst.is_call:
+                    target_candidate = None
+                    if inst.target_symbol:
+                        target_candidate = inst.target_symbol
+                    elif inst.target:
+                        target_candidate = f"sub_{inst.target:x}"
+                    elif inst.operands:
+                        for token in inst.operands.split():
+                            if "<" in token and ">" in token:
+                                target_candidate = token.strip("<>")
+                                break
+                    if target_candidate:
+                        resolved_callee = self._resolve_function_name(target_candidate)
+                        if resolved_callee and resolved_callee in self.analysis.cfgs:
+                            base_line += f"    ; [Nested Subroutine: `{resolved_callee}`]"
+
+                lines.append(base_line)
+
+        return "\n".join(lines)
+
     def format_llm_prompt(self, func_name: str) -> str:
         """
         Formats an inspection report into a structured markdown prompt for LLM reverse engineering.
+        Embeds the complete linear ASM function code and control flow semantics.
         """
         data = self.inspect_function(func_name)
+        complete_asm = self.get_complete_function_asm(func_name, annotate_nested_calls=True)
 
         callees_text = "None"
         if data["callees"]:
@@ -268,6 +318,12 @@ class FunctionInspectionToolset:
 - Outbound Callees:
 {callees_text}
 
+### Complete Target Function Assembly (ASM Code):
+```assembly
+{complete_asm}
+```
+
 ### Basic Block Control Flow Graph:
 {blocks_formatted}
 """
+

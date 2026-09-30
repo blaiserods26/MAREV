@@ -123,14 +123,41 @@ export const Analyzer: React.FC = () => {
     }
   };
 
+  const handleFunctionIdentified = useCallback((name: string, ident: any) => {
+    const predicted = ident?.top_prediction?.predicted_name || ident?.recovered_signature?.name;
+    const confidence = ident?.top_prediction?.confidence ?? ident?.recovered_signature?.confidence;
+    const category = ident?.semantic_category;
+
+    // 1. Live update functions list so sidebar item displays predicted name badge immediately
+    setFunctions((prev) =>
+      prev.map((fn) => {
+        const cleanTarget = name.replace(/[<>]/g, '');
+        const cleanFn = fn.name.replace(/[<>]/g, '');
+        if (cleanFn === cleanTarget) {
+          return {
+            ...fn,
+            predicted_name: predicted || fn.predicted_name,
+            confidence: confidence !== undefined ? confidence : fn.confidence,
+            semantic_category: category || fn.semantic_category,
+          };
+        }
+        return fn;
+      })
+    );
+
+    // 2. Synchronize analysis report in Analyzer state
+    setAnalysisReport((prev) => (prev ? { ...prev, identification: ident } : null));
+  }, []);
+
   return (
     <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Batch Scan Modal */}
       <BatchScanModal
         isOpen={isBatchScanOpen}
-        onClose={() => setIsBatchScanOpen(false)}
+        onClose={() => { setIsBatchScanOpen(false); loadFunctions(); }}
         onSelectFunction={(name) => { setSelectedFunction(name); setIsBatchScanOpen(false); }}
       />
+
 
       {/* Top Header Toolbar */}
       <Toolbar
@@ -206,7 +233,9 @@ export const Analyzer: React.FC = () => {
             onSelectFunction={(name) => setSelectedFunction(name)}
             onClose={() => setSelectedBlock(null)}
             analysisReport={analysisReport}
+            onFunctionIdentified={handleFunctionIdentified}
           />
+
         </div>
       </div>
 

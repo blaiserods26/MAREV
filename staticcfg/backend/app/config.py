@@ -55,9 +55,10 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("STATICCFG_OPENAI_API_KEY", "OPENAI_API_KEY")
     )
     gemini_model: str = Field(
-        default="gemini-1.5-flash",
+        default="gemini-2.5-flash",
         validation_alias=AliasChoices("STATICCFG_GEMINI_MODEL", "GEMINI_MODEL")
     )
+
     openai_model: str = Field(
         default="gpt-4o-mini",
         validation_alias=AliasChoices("STATICCFG_OPENAI_MODEL", "OPENAI_MODEL")

@@ -12,6 +12,7 @@ interface InstructionPanelProps {
   onSelectFunction: (name: string) => void;
   onClose: () => void;
   analysisReport?: FunctionAnalysisReport | null;
+  onFunctionIdentified?: (functionName: string, ident: any) => void;
 }
 
 export const InstructionPanel: React.FC<InstructionPanelProps> = ({
@@ -22,16 +23,24 @@ export const InstructionPanel: React.FC<InstructionPanelProps> = ({
   onSelectFunction,
   onClose,
   analysisReport: analysisReportProp,
+  onFunctionIdentified,
 }) => {
   const [activeTab, setActiveTab] = useState<'block' | 'raw' | 'analysis'>('block');
   const [internalReport, setInternalReport] = useState<FunctionAnalysisReport | null>(null);
+  const [overrideIdent, setOverrideIdent] = useState<any | null>(null);
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
   const [isAnalyzingWithAgent, setIsAnalyzingWithAgent] = useState(false);
   const [agentError, setAgentError] = useState<string | null>(null);
   const [agentStatus, setAgentStatus] = useState<AgentStatusResponse | null>(null);
   const blockRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
+  useEffect(() => {
+    setOverrideIdent(null);
+  }, [functionName]);
+
   const analysisReport = analysisReportProp ?? internalReport;
+  const ident = overrideIdent ?? analysisReport?.identification;
+
 
   useEffect(() => {
     getAgentStatus().then(st => setAgentStatus(st)).catch(() => {});
@@ -76,11 +85,15 @@ export const InstructionPanel: React.FC<InstructionPanelProps> = ({
     setAgentError(null);
     try {
       const updatedIdent = await agentIdentifyFunction(functionName);
+      setOverrideIdent(updatedIdent);
       if (analysisReport) {
         setInternalReport({
           ...analysisReport,
           identification: updatedIdent
         });
+      }
+      if (onFunctionIdentified) {
+        onFunctionIdentified(functionName, updatedIdent);
       }
     } catch (err: any) {
       console.error("Agent identification error:", err);
@@ -89,6 +102,7 @@ export const InstructionPanel: React.FC<InstructionPanelProps> = ({
       setIsAnalyzingWithAgent(false);
     }
   };
+
 
 
   // Auto-scroll to selected block in Raw Assembly view
@@ -138,7 +152,8 @@ export const InstructionPanel: React.FC<InstructionPanelProps> = ({
 
   const isSpecial = block && (block.id === 'EXIT' || block.id === 'UNKNOWN' || block.id.startsWith('EXTERNAL_'));
   const fp = analysisReport?.fingerprint;
-  const ident = analysisReport?.identification;
+
+
 
   return (
     <div
@@ -230,9 +245,10 @@ export const InstructionPanel: React.FC<InstructionPanelProps> = ({
 
           {functionName && (
             <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>
-              Recovered Symbol: <strong style={{ color: 'var(--text-main)' }}>{ident?.recovered_name || functionName}</strong> ({ident?.formatted_address || '0x0'})
+              Recovered Symbol: <strong style={{ color: 'var(--text-main)' }}>{ident?.top_prediction?.predicted_name || ident?.recovered_signature?.name || ident?.recovered_name || functionName}</strong> ({ident?.formatted_address || '0x0'})
             </span>
           )}
+
         </div>
 
         {block && (

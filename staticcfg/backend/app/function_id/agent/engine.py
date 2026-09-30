@@ -46,35 +46,34 @@ class AgenticFunctionIdentifier:
         callee_contexts = []
         nested_callees_analyzed = []
 
-        for c in callees[:5]:  # Inspect child subroutines
+        for c in callees[:8]:  # Inspect child subroutines
             callee_name = c["function_name"]
-            callee_data = self.toolset.fetch_nested_or_callee_code(callee_name, max_instructions=35, max_depth=1)
+            callee_asm = self.toolset.get_complete_function_asm(callee_name, annotate_nested_calls=False)
+            callee_data = self.toolset.fetch_nested_or_callee_code(callee_name, max_instructions=250, max_depth=1)
             if "error" not in callee_data:
                 nested_callees_analyzed.append(callee_name)
                 strings_str = ", ".join([f'"{s}"' for s in callee_data.get("strings", [])]) or "None"
                 constants_str = ", ".join(callee_data.get("constants", [])) or "None"
-                inst_lines = []
-                for b in callee_data.get("blocks", [])[:3]:
-                    inst_lines.extend(b.get("instructions", [])[:6])
 
                 known_sig = callee_data.get("recovered_signature") or callee_data.get("known_identity")
                 sig_note = f" (Known/Recovered Identity: {known_sig})" if known_sig else ""
 
                 entry_text = (
-                    f"Subroutine `{callee_name}`{sig_note}:\n"
-                    f"  Blocks: {callee_data['block_count']}, Complexity: {callee_data['cyclomatic_complexity']}, Loops: {callee_data.get('loop_count', 0)}\n"
-                    f"  Strings: {strings_str} | Constants: {constants_str}\n"
-                    f"  Instructions:\n    " + "\n    ".join(inst_lines)
+                    f"#### Nested Subroutine `{callee_name}`{sig_note}:\n"
+                    f"- Blocks: {callee_data['block_count']}, Complexity: {callee_data['cyclomatic_complexity']}, Loops: {callee_data.get('loop_count', 0)}\n"
+                    f"- Strings: {strings_str} | Constants: {constants_str}\n"
+                    f"```assembly\n{callee_asm}\n```"
                 )
 
                 # Format nested second-hop children if any
                 for child_c in callee_data.get("nested_children", []):
                     nested_callees_analyzed.append(child_c["function_name"])
-                    entry_text += f"\n    -> Calls inner subroutine `{child_c['function_name']}` ({child_c.get('known_identity') or 'unnamed'})"
+                    entry_text += f"\n  -> Calls inner subroutine `{child_c['function_name']}` ({child_c.get('known_identity') or 'unnamed'})"
 
                 callee_contexts.append(entry_text)
 
         callee_context_str = "\n\n".join(callee_contexts) if callee_contexts else None
+
 
 
         # 3. Invoke LLM Provider
@@ -163,5 +162,15 @@ class AgenticFunctionIdentifier:
         self.analysis.identifications[resolved_name] = updated_ident
         cleaned = resolved_name.strip("<>")
         self.analysis.identifications[cleaned] = updated_ident
+        bracketed = f"<{cleaned}>"
+        self.analysis.identifications[bracketed] = updated_ident
+
+        # Synchronize function summary list so UI sidebar reflects prediction immediately
+        for fn in self.analysis.functions:
+            if fn.name in (resolved_name, cleaned, bracketed):
+                fn.predicted_name = candidate.predicted_name
+                fn.confidence = candidate.confidence
+                fn.semantic_category = candidate.category.value
 
         return updated_ident
+

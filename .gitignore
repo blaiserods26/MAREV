@@ -216,4 +216,5 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-cache/
+# cache/
+!staticcfg/backend/app/cache/

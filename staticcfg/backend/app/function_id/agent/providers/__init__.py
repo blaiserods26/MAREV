@@ -45,7 +45,7 @@ def set_configured_provider(
     global _configured_provider
     pt = provider_type.lower()
     if pt == "gemini":
-        _configured_provider = GoogleGeminiProvider(api_key=api_key, model=model or "gemini-1.5-flash")
+        _configured_provider = GoogleGeminiProvider(api_key=api_key, model=model or "gemini-2.5-flash")
     elif pt == "ollama":
         _configured_provider = OllamaProvider(base_url=base_url, model=model or "qwen2.5-coder")
     elif pt in ("openai", "openai_compatible"):
