@@ -22,13 +22,22 @@ A self-contained Visual Studio Code extension that uses embedded AI reverse-engi
 
 ## 🚀 Quick Start
 
-### 1. Triggering Identification
+### 1. Single Function Identification
 1. Open any C (`.c`, `.cpp`, `.h`) or Assembly (`.s`, `.asm`) file.
 2. Place your cursor inside a stripped function (e.g. `FUN_00102020` or `sub_401120`) or select a code snippet.
 3. Right-click and choose **"MAREV: Identify Function with AI Agent"** (or press `Ctrl+Alt+M` / `Cmd+Alt+M`).
-4. The **MAREV AI** sidebar opens and displays the extracted code and callee context.
-5. Click **"✦ Run AI Function Prediction"** to analyze with the agent.
-6. Click **"✏️ Rename in File"** or **"📄 Insert Doxygen"** to apply the result.
+4. Click **"✦ Run AI Function Prediction"** in the sidebar.
+5. Click **"✏️ Rename in File"** or **"📄 Insert Doxygen"** to apply the result.
+
+### 2. Complete File Batch Scan & Approval Workflow
+1. Switch to the **"File Batch Scan"** tab in the sidebar (or run `MAREV: Scan Complete File for Functions`).
+2. Click **"🔍 Find All Functions in File"** (optionally filter for only stripped/generic functions like `FUN_*` or `sub_*`).
+3. Click **"✦ Run AI Prediction on Candidates"** to automatically reverse-engineer all functions in the file with real-time progress.
+4. Review the deduced names in the candidates list:
+   - Check/uncheck individual functions to approve or reject replacements.
+   - Adjust any proposed name inline in the text box before applying.
+   - Toggle whether to automatically insert Doxygen documentation above each replaced function.
+5. Click **"🚀 Apply Approved Replacements in File"** to execute a single atomic workspace edit updating all definitions and local call sites! All changes are 100% undoable via `Ctrl+Z`.
 
 ---
 

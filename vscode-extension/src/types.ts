@@ -43,3 +43,14 @@ export interface AgentConfig {
   ollamaModel: string;
   autoExpandContext: boolean;
 }
+
+export interface BatchFunctionCandidate {
+  id: string;
+  originalName: string;
+  predictedName: string;
+  context: ExtractedContext;
+  signature?: RecoveredSignature;
+  selected: boolean;
+  status: 'pending' | 'analyzing' | 'done' | 'error';
+  error?: string;
+}

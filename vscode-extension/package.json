@@ -39,6 +39,11 @@
         "command": "marev.insertDocumentation",
         "title": "MAREV: Insert Doxygen / C Signature",
         "category": "MAREV"
+      },
+      {
+        "command": "marev.scanFile",
+        "title": "MAREV: Scan Complete File for Functions",
+        "category": "MAREV"
       }
     ],
     "menus": {
@@ -46,6 +51,11 @@
         {
           "command": "marev.identifyFunction",
           "group": "marev@1",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "marev.scanFile",
+          "group": "marev@2",
           "when": "editorTextFocus"
         }
       ]

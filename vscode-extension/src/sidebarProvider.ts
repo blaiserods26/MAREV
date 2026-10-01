@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { RecoveredSignature, ExtractedContext, AgentConfig } from './types';
+import { RecoveredSignature, ExtractedContext, BatchFunctionCandidate } from './types';
+import { BatchRenameItem } from './writeback';
 
 export class MarevSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'marev.sidebar';
@@ -10,11 +11,20 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
   private _isLoading = false;
   private _errorMessage?: string;
 
+  private _batchCandidates: BatchFunctionCandidate[] = [];
+  private _batchDocName = '';
+  private _batchProgress = { completed: 0, total: 0, currentFunc: '' };
+  private _isBatchRunning = false;
+  private _activeTab: 'single' | 'batch' = 'single';
+
   constructor(
     private readonly _extensionUri: vscode.Uri,
     private readonly _onRunAnalysis: (context: ExtractedContext) => Promise<void>,
     private readonly _onRename: (signature: RecoveredSignature, context: ExtractedContext) => Promise<void>,
-    private readonly _onInsertDoc: (signature: RecoveredSignature, context: ExtractedContext) => Promise<void>
+    private readonly _onInsertDoc: (signature: RecoveredSignature, context: ExtractedContext) => Promise<void>,
+    private readonly _onScanFile: (onlyStripped: boolean) => Promise<void>,
+    private readonly _onRunBatchAnalysis: (candidates: BatchFunctionCandidate[]) => Promise<void>,
+    private readonly _onApplyBatchRenames: (items: BatchRenameItem[]) => Promise<void>
   ) {}
 
   public resolveWebviewView(
@@ -33,6 +43,10 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(async (data) => {
       switch (data.type) {
+        case 'setTab': {
+          this._activeTab = data.tab;
+          break;
+        }
         case 'triggerAnalysis': {
           if (this._currentContext) {
             await this._onRunAnalysis(this._currentContext);
@@ -60,6 +74,40 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
           }
           break;
         }
+        case 'scanFile': {
+          await this._onScanFile(Boolean(data.onlyStripped));
+          break;
+        }
+        case 'triggerBatchAnalysis': {
+          if (this._batchCandidates.length > 0) {
+            await this._onRunBatchAnalysis(this._batchCandidates);
+          }
+          break;
+        }
+        case 'updateCandidateSelection': {
+          const cand = this._batchCandidates.find((c) => c.id === data.id);
+          if (cand) {
+            cand.selected = Boolean(data.selected);
+            if (data.predictedName) {
+              cand.predictedName = data.predictedName;
+            }
+          }
+          break;
+        }
+        case 'applyBatchRenames': {
+          const approved: BatchRenameItem[] = (data.items || []).map((it: any) => {
+            const cand = this._batchCandidates.find((c) => c.id === it.id);
+            return {
+              originalName: it.originalName,
+              predictedName: it.predictedName,
+              context: cand?.context || it.context,
+              signature: cand?.signature,
+              insertDoc: Boolean(it.insertDoc)
+            };
+          });
+          await this._onApplyBatchRenames(approved);
+          break;
+        }
         case 'openSettings': {
           vscode.commands.executeCommand('workbench.action.openSettings', 'marev');
           break;
@@ -67,10 +115,7 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
       }
     });
 
-    // Update with any pending context
-    if (this._currentContext) {
-      this._updateWebview();
-    }
+    this._updateWebview();
   }
 
   public setContext(context: ExtractedContext) {
@@ -78,6 +123,7 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
     this._currentSignature = undefined;
     this._errorMessage = undefined;
     this._isLoading = false;
+    this._activeTab = 'single';
     this._updateWebview();
     if (this._view) {
       this._view.show?.(true);
@@ -101,9 +147,45 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
     this._updateWebview();
   }
 
+  public setBatchCandidates(candidates: BatchFunctionCandidate[], docName: string) {
+    this._batchCandidates = candidates;
+    this._batchDocName = docName;
+    this._activeTab = 'batch';
+    this._isBatchRunning = false;
+    this._batchProgress = { completed: 0, total: candidates.length, currentFunc: '' };
+    this._updateWebview();
+    if (this._view) {
+      this._view.show?.(true);
+    }
+  }
+
+  public setBatchProgress(completed: number, total: number, currentFunc?: string) {
+    this._isBatchRunning = completed < total;
+    this._batchProgress = { completed, total, currentFunc: currentFunc ?? '' };
+    this._view?.webview.postMessage({
+      type: 'updateBatchProgress',
+      progress: this._batchProgress,
+      isRunning: this._isBatchRunning
+    });
+  }
+
+  public updateBatchCandidate(candidate: BatchFunctionCandidate) {
+    const idx = this._batchCandidates.findIndex((c) => c.id === candidate.id);
+    if (idx !== -1) {
+      this._batchCandidates[idx] = candidate;
+    } else {
+      this._batchCandidates.push(candidate);
+    }
+    this._view?.webview.postMessage({
+      type: 'updateBatchCandidate',
+      candidate
+    });
+  }
+
   public setError(error: string) {
     this._errorMessage = error;
     this._isLoading = false;
+    this._isBatchRunning = false;
     this._updateWebview();
   }
 
@@ -111,10 +193,15 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
     if (this._view) {
       this._view.webview.postMessage({
         type: 'updateState',
+        activeTab: this._activeTab,
         context: this._currentContext,
         signature: this._currentSignature,
         isLoading: this._isLoading,
-        errorMessage: this._errorMessage
+        errorMessage: this._errorMessage,
+        batchCandidates: this._batchCandidates,
+        batchDocName: this._batchDocName,
+        batchProgress: this._batchProgress,
+        isBatchRunning: this._isBatchRunning
       });
     }
   }
@@ -158,7 +245,7 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
       justify-content: space-between;
       padding-bottom: 10px;
       border-bottom: 1px solid var(--border-color);
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
 
     .title {
@@ -170,6 +257,34 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
       gap: 6px;
       text-transform: uppercase;
       color: #cbd5e1;
+    }
+
+    .tab-bar {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 12px;
+      background: rgba(0, 0, 0, 0.2);
+      padding: 3px;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 5px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 4px;
+      transition: all 0.2s;
+      text-align: center;
+    }
+    .tab-btn.active {
+      background: var(--card-bg);
+      color: #38bdf8;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
     }
 
     .settings-btn {
@@ -250,7 +365,7 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
       gap: 6px;
       transition: all 0.2s;
     }
-    .btn-secondary:hover {
+    .btn-secondary:hover:not(:disabled) {
       background: rgba(255, 255, 255, 0.1);
       border-color: var(--primary);
     }
@@ -329,8 +444,58 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
 
     .placeholder-state {
       text-align: center;
-      padding: 30px 10px;
+      padding: 24px 10px;
       color: var(--text-muted);
+    }
+
+    .candidate-card {
+      border: 1px solid var(--border-color);
+      background: rgba(15, 23, 42, 0.6);
+      border-radius: 6px;
+      padding: 10px;
+      margin-bottom: 8px;
+      transition: border-color 0.2s;
+    }
+    .candidate-card:hover {
+      border-color: rgba(99, 102, 241, 0.5);
+    }
+
+    .candidate-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .name-input {
+      background: var(--code-bg);
+      border: 1px solid var(--border-color);
+      color: #38bdf8;
+      font-family: monospace;
+      font-size: 12px;
+      padding: 4px 6px;
+      border-radius: 4px;
+      width: 100%;
+      box-sizing: border-box;
+      margin-top: 4px;
+    }
+    .name-input:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    .progress-bar-bg {
+      background: rgba(255, 255, 255, 0.1);
+      height: 6px;
+      border-radius: 3px;
+      overflow: hidden;
+      margin: 8px 0;
+    }
+    .progress-bar-fill {
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+      height: 100%;
+      width: 0%;
+      transition: width 0.3s;
     }
   </style>
 </head>
@@ -342,29 +507,93 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
     <button class="settings-btn" id="openSettingsBtn" title="Extension Settings">⚙ Config</button>
   </div>
 
+  <div class="tab-bar">
+    <button class="tab-btn active" id="tabSingle">Single Function</button>
+    <button class="tab-btn" id="tabBatch">File Batch Scan</button>
+  </div>
+
   <div id="errorContainer"></div>
 
-  <div id="contextSection">
-    <div class="card" id="contextCard" style="display: none;">
-      <div class="collapsible-header" id="contextToggle">
-        <span><strong id="langBadge">C</strong> • <span id="linesInfo">Lines 0-0</span></span>
-        <span id="calleesCount" class="badge badge-primary">0 callees</span>
+  <!-- SINGLE FUNCTION VIEW -->
+  <div id="singleView">
+    <div id="contextSection">
+      <div class="card" id="contextCard" style="display: none;">
+        <div class="collapsible-header" id="contextToggle">
+          <span><strong id="langBadge">C</strong> • <span id="linesInfo">Lines 0-0</span></span>
+          <span id="calleesCount" class="badge badge-primary">0 callees</span>
+        </div>
+        <div id="contextBody" style="margin-top: 8px;">
+          <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">Target Code:</div>
+          <div class="code-box" id="codeSnippet" style="max-height: 100px; overflow-y: auto;"></div>
+        </div>
       </div>
-      <div id="contextBody" style="margin-top: 8px;">
-        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">Target Code:</div>
-        <div class="code-box" id="codeSnippet" style="max-height: 100px; overflow-y: auto;"></div>
+    </div>
+
+    <button class="btn-primary" id="analyzeBtn" disabled>
+      <span>✦ Run AI Function Prediction</span>
+    </button>
+
+    <div id="resultSection" style="margin-top: 14px;"></div>
+  </div>
+
+  <!-- BATCH SCAN VIEW -->
+  <div id="batchView" style="display: none;">
+    <div class="card">
+      <div style="font-size: 12px; font-weight: 600; margin-bottom: 8px;">
+        📁 Scan Entire Document
+      </div>
+      <div style="margin-bottom: 10px;">
+        <label style="font-size: 11px; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; gap: 6px;">
+          <input type="checkbox" id="onlyStrippedCheck" checked>
+          Only scan stripped/unnamed routines (FUN_*, sub_*)
+        </label>
+      </div>
+      <button class="btn-secondary" id="scanDocumentBtn" style="width: 100%;">
+        🔍 Find All Functions in File
+      </button>
+    </div>
+
+    <div id="batchProgressCard" class="card" style="display: none;">
+      <div style="display: flex; justify-content: space-between; font-size: 11px;">
+        <span id="batchProgressLabel">Analyzing functions...</span>
+        <span id="batchProgressCount">0 / 0</span>
+      </div>
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="batchProgressFill"></div>
+      </div>
+    </div>
+
+    <div id="batchResultsSection" style="display: none;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+        <span style="font-size: 12px; font-weight: 600;" id="batchFoundCount">0 Candidates</span>
+        <div style="display: flex; gap: 6px;">
+          <button class="settings-btn" id="selectAllBtn">Select All</button>
+          <button class="settings-btn" id="deselectAllBtn">None</button>
+        </div>
+      </div>
+
+      <button class="btn-primary" id="startBatchAgentBtn" style="margin-bottom: 10px;">
+        <span>✦ Run AI Prediction on Candidates</span>
+      </button>
+
+      <div id="candidatesList"></div>
+
+      <div style="position: sticky; bottom: 0; background: var(--bg-dark); padding: 8px 0; border-top: 1px solid var(--border-color); margin-top: 10px;">
+        <button class="btn-primary" id="applyBatchBtn" style="background: linear-gradient(135deg, #059669 0%, #047857 100%);">
+          <span>🚀 Apply Approved Replacements in File</span>
+        </button>
       </div>
     </div>
   </div>
 
-  <button class="btn-primary" id="analyzeBtn" disabled>
-    <span>✦ Run AI Function Prediction</span>
-  </button>
-
-  <div id="resultSection" style="margin-top: 14px;"></div>
-
   <script>
     const vscode = acquireVsCodeApi();
+
+    // DOM Elements
+    const tabSingle = document.getElementById('tabSingle');
+    const tabBatch = document.getElementById('tabBatch');
+    const singleView = document.getElementById('singleView');
+    const batchView = document.getElementById('batchView');
 
     const analyzeBtn = document.getElementById('analyzeBtn');
     const openSettingsBtn = document.getElementById('openSettingsBtn');
@@ -376,8 +605,43 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
     const resultSection = document.getElementById('resultSection');
     const errorContainer = document.getElementById('errorContainer');
 
+    // Batch DOM
+    const scanDocumentBtn = document.getElementById('scanDocumentBtn');
+    const onlyStrippedCheck = document.getElementById('onlyStrippedCheck');
+    const batchProgressCard = document.getElementById('batchProgressCard');
+    const batchProgressLabel = document.getElementById('batchProgressLabel');
+    const batchProgressCount = document.getElementById('batchProgressCount');
+    const batchProgressFill = document.getElementById('batchProgressFill');
+    const batchResultsSection = document.getElementById('batchResultsSection');
+    const batchFoundCount = document.getElementById('batchFoundCount');
+    const startBatchAgentBtn = document.getElementById('startBatchAgentBtn');
+    const candidatesList = document.getElementById('candidatesList');
+    const applyBatchBtn = document.getElementById('applyBatchBtn');
+    const selectAllBtn = document.getElementById('selectAllBtn');
+    const deselectAllBtn = document.getElementById('deselectAllBtn');
+
     let currentContext = null;
     let currentSignature = null;
+    let batchCandidates = [];
+
+    // Tab Switching
+    tabSingle.addEventListener('click', () => switchTab('single'));
+    tabBatch.addEventListener('click', () => switchTab('batch'));
+
+    function switchTab(tab) {
+      if (tab === 'single') {
+        tabSingle.classList.add('active');
+        tabBatch.classList.remove('active');
+        singleView.style.display = 'block';
+        batchView.style.display = 'none';
+      } else {
+        tabBatch.classList.add('active');
+        tabSingle.classList.remove('active');
+        singleView.style.display = 'none';
+        batchView.style.display = 'block';
+      }
+      vscode.postMessage({ type: 'setTab', tab });
+    }
 
     openSettingsBtn.addEventListener('click', () => {
       vscode.postMessage({ type: 'openSettings' });
@@ -385,6 +649,49 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
 
     analyzeBtn.addEventListener('click', () => {
       vscode.postMessage({ type: 'triggerAnalysis' });
+    });
+
+    scanDocumentBtn.addEventListener('click', () => {
+      vscode.postMessage({
+        type: 'scanFile',
+        onlyStripped: onlyStrippedCheck.checked
+      });
+    });
+
+    startBatchAgentBtn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'triggerBatchAnalysis' });
+    });
+
+    selectAllBtn.addEventListener('click', () => {
+      batchCandidates.forEach(c => c.selected = true);
+      renderCandidates();
+    });
+
+    deselectAllBtn.addEventListener('click', () => {
+      batchCandidates.forEach(c => c.selected = false);
+      renderCandidates();
+    });
+
+    applyBatchBtn.addEventListener('click', () => {
+      const approved = batchCandidates
+        .filter(c => c.selected && c.predictedName && c.predictedName !== c.originalName)
+        .map(c => ({
+          id: c.id,
+          originalName: c.originalName,
+          predictedName: c.predictedName,
+          context: c.context,
+          insertDoc: c.insertDoc ?? true
+        }));
+
+      if (approved.length === 0) {
+        alert('No functions selected for renaming. Check the boxes next to the functions you wish to approve.');
+        return;
+      }
+
+      vscode.postMessage({
+        type: 'applyBatchRenames',
+        items: approved
+      });
     });
 
     window.addEventListener('message', event => {
@@ -395,6 +702,18 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
           break;
         case 'updateState':
           renderState(message);
+          break;
+        case 'updateBatchProgress':
+          updateProgressUI(message.progress, message.isRunning);
+          break;
+        case 'updateBatchCandidate':
+          const idx = batchCandidates.findIndex(c => c.id === message.candidate.id);
+          if (idx !== -1) {
+            batchCandidates[idx] = message.candidate;
+          } else {
+            batchCandidates.push(message.candidate);
+          }
+          renderCandidates();
           break;
       }
     });
@@ -409,9 +728,28 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
       }
     }
 
+    function updateProgressUI(progress, isRunning) {
+      if (isRunning || (progress.total > 0 && progress.completed < progress.total)) {
+        batchProgressCard.style.display = 'block';
+        batchProgressLabel.textContent = progress.currentFunc ? 'Analyzing: ' + progress.currentFunc : 'Analyzing functions...';
+        batchProgressCount.textContent = progress.completed + ' / ' + progress.total;
+        const pct = Math.round((progress.completed / progress.total) * 100);
+        batchProgressFill.style.width = pct + '%';
+        startBatchAgentBtn.disabled = true;
+      } else {
+        batchProgressCard.style.display = 'none';
+        startBatchAgentBtn.disabled = false;
+      }
+    }
+
     function renderState(state) {
       currentContext = state.context;
       currentSignature = state.signature;
+      batchCandidates = state.batchCandidates || [];
+
+      if (state.activeTab) {
+        switchTab(state.activeTab);
+      }
 
       // Handle Errors
       if (state.errorMessage) {
@@ -437,7 +775,7 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
       if (currentSignature) {
         renderResult(currentSignature);
       } else if (!state.isLoading && !currentContext) {
-        resultSection.innerHTML = '<div class="placeholder-state"><p>Select a function or code snippet in the editor and click <strong>"MAREV: Identify Function"</strong> to begin.</p></div>';
+        resultSection.innerHTML = '<div class="placeholder-state"><p>Select a function in the editor and run <strong>"MAREV: Identify Function"</strong> to begin.</p></div>';
       } else if (!state.isLoading && currentContext && !currentSignature) {
         resultSection.innerHTML = '';
       }
@@ -447,6 +785,117 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
       } else {
         setLoadingUI(false);
       }
+
+      // Handle Batch Candidates
+      if (batchCandidates.length > 0) {
+        batchResultsSection.style.display = 'block';
+        batchFoundCount.textContent = batchCandidates.length + ' Candidates (' + (state.batchDocName || 'file') + ')';
+        renderCandidates();
+      } else {
+        batchResultsSection.style.display = 'none';
+      }
+
+      if (state.batchProgress) {
+        updateProgressUI(state.batchProgress, state.isBatchRunning);
+      }
+    }
+
+    function renderCandidates() {
+      let html = '';
+      for (const cand of batchCandidates) {
+        const confPct = cand.signature ? Math.round(cand.signature.confidence * 100) : null;
+        let badgeHtml = '';
+        if (cand.status === 'analyzing') {
+          badgeHtml = '<span class="spinner" style="width: 10px; height: 10px; border-width: 1.5px;"></span> <span style="font-size: 10px; color: var(--accent);">Analyzing...</span>';
+        } else if (cand.status === 'done' && confPct !== null) {
+          const badgeClass = confPct >= 60 ? 'badge-success' : 'badge-warning';
+          badgeHtml = '<span class="badge ' + badgeClass + '">' + confPct + '%</span>';
+          if (cand.signature?.semantic_category) {
+            badgeHtml += ' <span class="badge badge-category">' + escapeHtml(cand.signature.semantic_category) + '</span>';
+          }
+        } else if (cand.status === 'error') {
+          badgeHtml = '<span class="badge" style="background: rgba(239,68,68,0.2); color:#fca5a5;">Failed</span>';
+        }
+
+        const isChecked = cand.selected !== false;
+        const insertDocChecked = cand.insertDoc !== false;
+
+        html += \`
+          <div class="candidate-card" id="card-\${cand.id}">
+            <div class="candidate-header">
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; font-family: monospace;">
+                <input type="checkbox" class="cand-select" data-id="\${cand.id}" \${isChecked ? 'checked' : ''}>
+                <span>\${escapeHtml(cand.originalName)}</span>
+              </label>
+              <div>\${badgeHtml}</div>
+            </div>
+
+            <div style="margin-top: 6px;">
+              <div style="font-size: 10px; color: var(--text-muted);">Proposed Semantic Name:</div>
+              <input type="text" class="name-input" data-id="\${cand.id}" value="\${escapeHtml(cand.predictedName || cand.originalName)}">
+            </div>
+
+            \${cand.signature?.summary ? \`
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.3;">
+                \${escapeHtml(cand.signature.summary)}
+              </div>
+            \` : ''}
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 10px; color: var(--text-muted);">
+              <span>Lines \${cand.context.startLine + 1}-\${cand.context.endLine + 1}</span>
+              <label style="cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                <input type="checkbox" class="doc-select" data-id="\${cand.id}" \${insertDocChecked ? 'checked' : ''}>
+                Include Doxygen doc
+              </label>
+            </div>
+          </div>
+        \`;
+      }
+
+      candidatesList.innerHTML = html;
+
+      // Attach event listeners
+      document.querySelectorAll('.cand-select').forEach(cb => {
+        cb.addEventListener('change', e => {
+          const id = e.target.dataset.id;
+          const cand = batchCandidates.find(c => c.id === id);
+          if (cand) {
+            cand.selected = e.target.checked;
+            vscode.postMessage({
+              type: 'updateCandidateSelection',
+              id,
+              selected: cand.selected,
+              predictedName: cand.predictedName
+            });
+          }
+        });
+      });
+
+      document.querySelectorAll('.name-input').forEach(input => {
+        input.addEventListener('change', e => {
+          const id = e.target.dataset.id;
+          const cand = batchCandidates.find(c => c.id === id);
+          if (cand) {
+            cand.predictedName = e.target.value.trim();
+            vscode.postMessage({
+              type: 'updateCandidateSelection',
+              id,
+              selected: cand.selected,
+              predictedName: cand.predictedName
+            });
+          }
+        });
+      });
+
+      document.querySelectorAll('.doc-select').forEach(cb => {
+        cb.addEventListener('change', e => {
+          const id = e.target.dataset.id;
+          const cand = batchCandidates.find(c => c.id === id);
+          if (cand) {
+            cand.insertDoc = e.target.checked;
+          }
+        });
+      });
     }
 
     function renderResult(sig) {

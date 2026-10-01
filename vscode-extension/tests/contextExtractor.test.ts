@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractFunctionContext } from '../src/contextExtractor';
+import { extractFunctionContext, extractAllFunctionsInDocument } from '../src/contextExtractor';
 
 describe('extractFunctionContext', () => {
   it('extracts enclosing C function boundary and callee from document text', () => {
@@ -72,4 +72,29 @@ helper_routine:
     expect(result.startLine).toBe(0);
     expect(result.endLine).toBe(2);
   });
+
+  it('extracts all functions from multi-function C file and supports stripped filter', () => {
+    const cSource = `
+int helper_one(int x) {
+    return x + 1;
+}
+
+void FUN_00102020(void) {
+    return;
+}
+
+int sub_401100(char* buf) {
+    return 0;
+}
+`;
+    const lines = cSource.split('\n');
+    const all = extractAllFunctionsInDocument(lines, 'c', false);
+    expect(all).toHaveLength(3);
+    expect(all.map(f => f.functionName)).toEqual(['helper_one', 'FUN_00102020', 'sub_401100']);
+
+    const stripped = extractAllFunctionsInDocument(lines, 'c', true);
+    expect(stripped).toHaveLength(2);
+    expect(stripped.map(f => f.functionName)).toEqual(['FUN_00102020', 'sub_401100']);
+  });
 });
+

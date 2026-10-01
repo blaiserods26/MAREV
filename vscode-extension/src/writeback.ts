@@ -78,6 +78,72 @@ export async function insertDocumentationInDocument(
   return success;
 }
 
+export interface BatchRenameItem {
+  originalName: string;
+  predictedName: string;
+  context: ExtractedContext;
+  signature?: RecoveredSignature;
+  insertDoc?: boolean;
+}
+
+export async function applyBatchRenamesInDocument(
+  editor: vscode.TextEditor,
+  items: BatchRenameItem[]
+): Promise<{ totalOccurrences: number; functionsCount: number; success: boolean }> {
+  const doc = editor.document;
+  const edit = new vscode.WorkspaceEdit();
+  const text = doc.getText();
+  let totalOccurrences = 0;
+  let functionsCount = 0;
+
+  // 1. Collect all rename edits
+  for (const item of items) {
+    if (!item.originalName || !item.predictedName || item.originalName === item.predictedName) {
+      continue;
+    }
+    const regex = new RegExp(`\\b${escapeRegExp(item.originalName)}\\b`, 'g');
+    let match: RegExpExecArray | null;
+    let occurrencesForItem = 0;
+
+    while ((match = regex.exec(text)) !== null) {
+      const startPos = doc.positionAt(match.index);
+      const endPos = doc.positionAt(match.index + item.originalName.length);
+      edit.replace(doc.uri, new vscode.Range(startPos, endPos), item.predictedName);
+      occurrencesForItem++;
+    }
+
+    if (occurrencesForItem > 0) {
+      totalOccurrences += occurrencesForItem;
+      functionsCount++;
+    }
+  }
+
+  // 2. Collect docblock insertions if requested (insert bottom to top)
+  const itemsWithDoc = items
+    .filter((it) => it.insertDoc && it.signature && it.context)
+    .sort((a, b) => b.context.startLine - a.context.startLine);
+
+  for (const it of itemsWithDoc) {
+    if (it.signature) {
+      const docblock = generateDoxygenComment(it.signature);
+      const pos = new vscode.Position(Math.max(0, it.context.startLine), 0);
+      edit.insert(doc.uri, pos, docblock + '\n');
+    }
+  }
+
+  const success = await vscode.workspace.applyEdit(edit);
+  if (success) {
+    vscode.window.showInformationMessage(
+      `MAREV: Batch replaced ${functionsCount} function names (${totalOccurrences} occurrences in file).`
+    );
+  } else {
+    vscode.window.showErrorMessage('MAREV: Failed to apply batch renames.');
+  }
+
+  return { totalOccurrences, functionsCount, success };
+}
+
 function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+

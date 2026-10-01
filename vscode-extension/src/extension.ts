@@ -1,9 +1,14 @@
 import * as vscode from 'vscode';
 import { MarevSidebarProvider } from './sidebarProvider';
-import { ExtractedContext, RecoveredSignature, AgentConfig } from './types';
-import { extractFunctionContext } from './contextExtractor';
+import { ExtractedContext, RecoveredSignature, AgentConfig, BatchFunctionCandidate } from './types';
+import { extractFunctionContext, extractAllFunctionsInDocument } from './contextExtractor';
 import { AgentEngine } from './agent/agentEngine';
-import { renameFunctionInDocument, insertDocumentationInDocument } from './writeback';
+import {
+  renameFunctionInDocument,
+  insertDocumentationInDocument,
+  applyBatchRenamesInDocument,
+  BatchRenameItem
+} from './writeback';
 
 let sidebarProvider: MarevSidebarProvider | undefined;
 
@@ -71,12 +76,97 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.executeCommand('marev.insertDocumentation', signature, extractedContext);
   };
 
+  const onScanFile = async (onlyStripped: boolean) => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showWarningMessage('MAREV: No active editor open to scan.');
+      return;
+    }
+
+    const doc = editor.document;
+    const lines = doc.getText().split(/\r?\n/);
+    const functions = extractAllFunctionsInDocument(lines, doc.languageId, onlyStripped);
+
+    if (functions.length === 0) {
+      vscode.window.showInformationMessage(
+        onlyStripped
+          ? 'MAREV: No stripped/generic functions found in active document.'
+          : 'MAREV: No function declarations found in active document.'
+      );
+    }
+
+    const candidates: BatchFunctionCandidate[] = functions.map((f, i) => ({
+      id: `cand-${i}-${f.functionName || 'fn'}`,
+      originalName: f.functionName || `sub_${i}`,
+      predictedName: f.functionName || `sub_${i}`,
+      context: f,
+      selected: true,
+      status: 'pending'
+    }));
+
+    const pathParts = doc.fileName.split(/[\\/]/);
+    const fileName = pathParts[pathParts.length - 1];
+
+    sidebarProvider?.setBatchCandidates(candidates, fileName);
+  };
+
+  const onRunBatchAnalysis = async (candidates: BatchFunctionCandidate[]) => {
+    if (!sidebarProvider) return;
+
+    const ready = await agentEngine.isProviderReady();
+    if (!ready) {
+      vscode.window.showErrorMessage('MAREV: LLM Provider is not ready. Check extension settings.');
+      return;
+    }
+
+    const toProcess = candidates.filter((c) => c.selected);
+    let completed = 0;
+
+    for (const cand of toProcess) {
+      cand.status = 'analyzing';
+      sidebarProvider.updateBatchCandidate(cand);
+      sidebarProvider.setBatchProgress(completed, toProcess.length, cand.originalName);
+
+      try {
+        const sig = await agentEngine.analyzeFunction(cand.context);
+        cand.signature = sig;
+        cand.predictedName = sig.name;
+        cand.status = 'done';
+      } catch (err: any) {
+        cand.status = 'error';
+        cand.error = err.message || String(err);
+      }
+
+      completed++;
+      sidebarProvider.updateBatchCandidate(cand);
+      sidebarProvider.setBatchProgress(completed, toProcess.length, cand.originalName);
+    }
+
+    sidebarProvider.setBatchProgress(toProcess.length, toProcess.length, '');
+    vscode.window.showInformationMessage(
+      `MAREV: Completed AI analysis for ${completed} functions in file.`
+    );
+  };
+
+  const onApplyBatchRenames = async (items: BatchRenameItem[]) => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showWarningMessage('MAREV: No active editor to apply batch renames.');
+      return;
+    }
+
+    await applyBatchRenamesInDocument(editor, items);
+  };
+
   // Register Webview View Provider
   sidebarProvider = new MarevSidebarProvider(
     context.extensionUri,
     onRunAnalysis,
     onRename,
-    onInsertDoc
+    onInsertDoc,
+    onScanFile,
+    onRunBatchAnalysis,
+    onApplyBatchRenames
   );
 
   context.subscriptions.push(
@@ -182,6 +272,14 @@ export function activate(context: vscode.ExtensionContext) {
         await insertDocumentationInDocument(editor, extractedContext, signature);
       }
     )
+  );
+
+  // Command: Scan Complete File for Functions
+  context.subscriptions.push(
+    vscode.commands.registerCommand('marev.scanFile', async () => {
+      await vscode.commands.executeCommand('marev.sidebar.focus');
+      await onScanFile(true);
+    })
   );
 }
 

@@ -6,6 +6,74 @@ const C_KEYWORDS = new Set([
   'static', 'inline', 'extern', 'const', 'volatile', 'auto', 'register'
 ]);
 
+export function isStrippedFunctionName(name: string): boolean {
+  return /^(FUN_|sub_|_sub_|func_|_func_|f\d+$|subroutine_)/i.test(name) || /^[a-f0-9]{6,}$/i.test(name);
+}
+
+export function extractAllFunctionsInDocument(
+  lines: string[],
+  languageId: string,
+  onlyStripped: boolean = false
+): ExtractedContext[] {
+  const isAsm = languageId.includes('asm') || languageId.includes('assembly') || languageId === 's';
+  const functions: ExtractedContext[] = [];
+
+  if (isAsm) {
+    let lineIdx = 0;
+    while (lineIdx < lines.length) {
+      const line = lines[lineIdx].trim();
+      let labelMatch = line.match(/^[0-9a-fA-F]+\s+<([a-zA-Z0-9_]+)>:/);
+      if (!labelMatch) {
+        labelMatch = line.match(/^([a-zA-Z_?.][a-zA-Z0-9_?.$@]*):/);
+      }
+
+      if (labelMatch) {
+        const funcName = labelMatch[1];
+        if (!onlyStripped || isStrippedFunctionName(funcName)) {
+          const ctx = extractAsmFunctionContext(lines, lineIdx, languageId);
+          if (ctx.isEnclosing && ctx.functionName) {
+            functions.push(ctx);
+            lineIdx = ctx.endLine + 1;
+            continue;
+          }
+        }
+      }
+      lineIdx++;
+    }
+  } else {
+    let lineIdx = 0;
+    while (lineIdx < lines.length) {
+      const line = lines[lineIdx];
+      const match = line.match(/(?:^|\s+)([a-zA-Z_]\w*)\s*\([^;{()]*\)\s*(?:\{|\s*$)/);
+      if (match) {
+        const candidateName = match[1];
+        if (!C_KEYWORDS.has(candidateName) && (!onlyStripped || isStrippedFunctionName(candidateName))) {
+          let foundBrace = false;
+          for (let k = lineIdx; k < Math.min(lines.length, lineIdx + 6); k++) {
+            if (lines[k].includes('{')) {
+              foundBrace = true;
+              break;
+            }
+            if (lines[k].includes(';')) break;
+          }
+
+          if (foundBrace) {
+            const ctx = extractCFunctionContext(lines, lineIdx, languageId);
+            if (ctx.isEnclosing && ctx.functionName) {
+              functions.push(ctx);
+              lineIdx = ctx.endLine + 1;
+              continue;
+            }
+          }
+        }
+      }
+      lineIdx++;
+    }
+  }
+
+  return functions;
+}
+
 export function extractFunctionContext(
   lines: string[],
   cursorLine: number,
