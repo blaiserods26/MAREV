@@ -11,6 +11,7 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
   private _isLoading = false;
   private _errorMessage?: string;
 
+  private _batchCandidates: BatchFunctionCandidate[] = [];
   private _batchDocName = '';
   private _batchProgress = { completed: 0, total: 0, currentFunc: '' };
   private _isBatchRunning = false;
