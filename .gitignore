@@ -217,4 +217,6 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 # cache/
-!staticcfg/backend/app/cache/
+!staticcfg/backend/app/cache/
+vscode-extension/node_modules/
+*.vsix

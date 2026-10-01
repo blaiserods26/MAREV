@@ -44,3 +44,14 @@ _Avoid_: Argument slot, param, input register
 The structural and semantic properties (disassembly, basic blocks, known signatures) of a subroutine invoked from within an analyzed function, inspected recursively to deduce caller semantics.
 _Avoid_: Child function code, subcall snippet, helper code
 
+### IDE Extension & Code Recovery
+
+**Enclosing Function Boundary**:
+The detected syntactic span (start and end line/offset) containing the user's active cursor or selection within a source or assembly buffer.
+_Avoid_: Outer block, containing snippet, selection parent
+
+**Editor Writeback**:
+The programmatic modification of the active text document in the IDE to apply recovered identifiers (e.g., renaming a symbol) or inject semantic documentation (e.g., Doxygen prototypes).
+_Avoid_: Code patching, auto-edit, buffer overwrite
+
+
