@@ -699,6 +699,8 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
     }
 
     startBatchAgentBtn.addEventListener('click', () => {
+      startBatchAgentBtn.disabled = true;
+      startBatchAgentBtn.innerHTML = '<span class="spinner" style="width:12px;height:12px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:6px;"></span> <span>Initiating AI Analysis...</span>';
       const selectedIds = batchCandidates.filter(c => c.selected !== false).map(c => c.id);
       vscode.postMessage({
         type: 'triggerBatchAnalysis',
@@ -778,16 +780,18 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
     }
 
     function updateProgressUI(progress, isRunning) {
-      if (isRunning || (progress.total > 0 && progress.completed < progress.total)) {
+      if (isRunning) {
         batchProgressCard.style.display = 'block';
         batchProgressLabel.textContent = progress.currentFunc ? 'Analyzing: ' + progress.currentFunc : 'Analyzing functions...';
-        batchProgressCount.textContent = progress.completed + ' / ' + progress.total;
-        const pct = Math.round((progress.completed / progress.total) * 100);
+        batchProgressCount.textContent = (progress.completed || 0) + ' / ' + (progress.total || 0);
+        const pct = progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
         batchProgressFill.style.width = pct + '%';
         startBatchAgentBtn.disabled = true;
+        startBatchAgentBtn.innerHTML = '<span class="spinner" style="width:12px;height:12px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:6px;"></span> <span>AI Agent Analyzing (' + (progress.completed || 0) + '/' + (progress.total || 0) + ')...</span>';
       } else {
         batchProgressCard.style.display = 'none';
         startBatchAgentBtn.disabled = false;
+        startBatchAgentBtn.innerHTML = '<span>✦ Run AI Prediction on Candidates</span>';
       }
     }
 
@@ -888,20 +892,25 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
 
         const isChecked = cand.selected !== false;
         const insertDocChecked = cand.insertDoc !== false;
+        const hasPredictedName = cand.predictedName && cand.predictedName !== cand.originalName;
 
         html += \`
-          <div class="candidate-card" id="card-\${cand.id}">
+          <div class="candidate-card" id="card-\${cand.id}" style="\${hasPredictedName ? 'border-color: rgba(6, 182, 212, 0.5); background: rgba(15, 23, 42, 0.7);' : ''}">
             <div class="candidate-header">
-              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; font-family: monospace;">
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; font-family: monospace; flex-wrap: wrap;">
                 <input type="checkbox" class="cand-select" data-id="\${cand.id}" \${isChecked ? 'checked' : ''}>
                 <span>\${escapeHtml(cand.originalName)}</span>
+                \${hasPredictedName ? \`<span style="color: var(--accent); font-weight: 700; word-break: break-all;">➔ \${escapeHtml(cand.predictedName)}</span>\` : ''}
               </label>
               <div>\${badgeHtml}</div>
             </div>
 
             <div style="margin-top: 6px;">
-              <div style="font-size: 10px; color: var(--text-muted);">Proposed Semantic Name:</div>
-              <input type="text" class="name-input" data-id="\${cand.id}" value="\${escapeHtml(cand.predictedName || cand.originalName)}">
+              <div style="font-size: 10px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                <span>Proposed Semantic Name:</span>
+                \${hasPredictedName ? '<span style="color: var(--success); font-weight: 600; font-size: 10px;">✓ AI Inferred</span>' : ''}
+              </div>
+              <input type="text" class="name-input" data-id="\${cand.id}" value="\${escapeHtml(cand.predictedName || cand.originalName)}" style="\${hasPredictedName ? 'border-color: var(--accent); color: #38bdf8; font-weight: 600;' : ''}">
             </div>
 
             \${cand.signature?.summary ? \`

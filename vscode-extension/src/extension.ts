@@ -245,33 +245,36 @@ export function activate(context: vscode.ExtensionContext) {
     let completed = 0;
     const total = toProcess.length;
 
-    for (const cand of toProcess) {
-      cand.status = 'analyzing';
-      sidebarProvider.updateBatchCandidate(cand);
-      sidebarProvider.setBatchProgress(completed, total, cand.originalName);
+    try {
+      for (const cand of toProcess) {
+        cand.status = 'analyzing';
+        sidebarProvider.updateBatchCandidate(cand);
+        sidebarProvider.setBatchProgress(completed, total, cand.originalName);
 
-      try {
-        const sig = await agentEngine.analyzeFunction(cand.context);
-        cand.signature = sig;
-        cand.predictedName = sig.name;
-        cand.status = 'done';
-      } catch (err: any) {
-        cand.status = 'error';
-        cand.error = err.message || String(err);
+        try {
+          const sig = await agentEngine.analyzeFunction(cand.context);
+          cand.signature = sig;
+          cand.predictedName = sig.name;
+          cand.status = 'done';
+        } catch (err: any) {
+          cand.status = 'error';
+          cand.error = err.message || String(err);
+        }
+
+        completed++;
+        sidebarProvider.updateBatchCandidate(cand);
+        sidebarProvider.setBatchProgress(completed, total, cand.originalName);
+
+        // Polite delay between calls to prevent bursting LLM rate limits
+        await new Promise((r) => setTimeout(r, 250));
       }
 
-      completed++;
-      sidebarProvider.updateBatchCandidate(cand);
-      sidebarProvider.setBatchProgress(completed, total, cand.originalName);
-
-      // Polite delay between calls to prevent bursting LLM rate limits
-      await new Promise((r) => setTimeout(r, 250));
+      vscode.window.showInformationMessage(
+        `MAREV: Completed AI analysis for ${completed} functions in file.`
+      );
+    } finally {
+      sidebarProvider.setBatchProgress(total, total, '');
     }
-
-    sidebarProvider.setBatchProgress(total, total, '');
-    vscode.window.showInformationMessage(
-      `MAREV: Completed AI analysis for ${completed} functions in file.`
-    );
   };
 
   const onApplyBatchRenames = async (items: BatchRenameItem[]) => {
