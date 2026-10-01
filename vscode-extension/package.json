@@ -16,6 +16,9 @@
   "activationEvents": [
     "onCommand:marev.identifyFunction",
     "onCommand:marev.openSidebar",
+    "onCommand:marev.scanFile",
+    "onCommand:marev.renameFunction",
+    "onCommand:marev.insertDocumentation",
     "onView:marev.sidebar"
   ],
   "contributes": {

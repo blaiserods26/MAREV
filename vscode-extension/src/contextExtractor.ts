@@ -3,11 +3,113 @@ import { CalleeContext, ExtractedContext } from './types';
 const C_KEYWORDS = new Set([
   'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default',
   'return', 'sizeof', 'typeof', 'typedef', 'struct', 'union', 'enum',
-  'static', 'inline', 'extern', 'const', 'volatile', 'auto', 'register'
+  'static', 'inline', 'extern', 'const', 'volatile', 'auto', 'register',
+  'catch', 'try', 'throw', 'alignas', 'alignof', 'decltype', 'template',
+  'typename', 'namespace', 'using', 'public', 'private', 'protected'
 ]);
 
 export function isStrippedFunctionName(name: string): boolean {
   return /^(FUN_|sub_|_sub_|func_|_func_|f\d+$|subroutine_)/i.test(name) || /^[a-f0-9]{6,}$/i.test(name);
+}
+
+export function stripCommentsFromLines(lines: string[]): string[] {
+  let inMultiComment = false;
+  const result: string[] = [];
+
+  for (const line of lines) {
+    let cleaned = '';
+    let j = 0;
+    while (j < line.length) {
+      if (inMultiComment) {
+        const endIdx = line.indexOf('*/', j);
+        if (endIdx === -1) {
+          cleaned += ' '.repeat(line.length - j);
+          j = line.length;
+        } else {
+          cleaned += ' '.repeat(endIdx + 2 - j);
+          inMultiComment = false;
+          j = endIdx + 2;
+        }
+      } else {
+        if (line.slice(j, j + 2) === '/*') {
+          inMultiComment = true;
+          cleaned += '  ';
+          j += 2;
+        } else if (line.slice(j, j + 2) === '//') {
+          cleaned += ' '.repeat(line.length - j);
+          break;
+        } else {
+          cleaned += line[j];
+          j++;
+        }
+      }
+    }
+    result.push(cleaned);
+  }
+
+  return result;
+}
+
+export function findMatchingBraceEnd(lines: string[], openBraceLine: number, openBraceCol: number): number {
+  let braceDepth = 0;
+  let endLine = openBraceLine;
+  let inStr = false;
+  let inChar = false;
+  let inComm = false;
+
+  for (let i = openBraceLine; i < lines.length; i++) {
+    const line = lines[i];
+    const startCol = i === openBraceLine ? openBraceCol : 0;
+
+    for (let c = startCol; c < line.length; c++) {
+      const ch = line[c];
+      const nextCh = c + 1 < line.length ? line[c + 1] : '';
+
+      if (inComm) {
+        if (ch === '*' && nextCh === '/') {
+          inComm = false;
+          c++;
+        }
+      } else if (inStr) {
+        if (ch === '\\') {
+          c++;
+        } else if (ch === '"') {
+          inStr = false;
+        }
+      } else if (inChar) {
+        if (ch === '\\') {
+          c++;
+        } else if (ch === "'") {
+          inChar = false;
+        }
+      } else {
+        if (ch === '/' && nextCh === '*') {
+          inComm = true;
+          c++;
+        } else if (ch === '/' && nextCh === '/') {
+          break; // Rest of line is comment
+        } else if (ch === '"') {
+          inStr = true;
+        } else if (ch === "'") {
+          inChar = true;
+        } else if (ch === '{') {
+          braceDepth++;
+        } else if (ch === '}') {
+          braceDepth--;
+          if (braceDepth === 0) {
+            endLine = i;
+            return endLine;
+          }
+        }
+      }
+    }
+
+    if (braceDepth === 0 && i >= openBraceLine) {
+      return i;
+    }
+  }
+
+  return endLine;
 }
 
 export function extractAllFunctionsInDocument(
@@ -41,28 +143,36 @@ export function extractAllFunctionsInDocument(
       lineIdx++;
     }
   } else {
+    const cleanLines = stripCommentsFromLines(lines);
     let lineIdx = 0;
-    while (lineIdx < lines.length) {
-      const line = lines[lineIdx];
-      const match = line.match(/(?:^|\s+)([a-zA-Z_]\w*)\s*\([^;{()]*\)\s*(?:\{|\s*$)/);
-      if (match) {
-        const candidateName = match[1];
-        if (!C_KEYWORDS.has(candidateName) && (!onlyStripped || isStrippedFunctionName(candidateName))) {
-          let foundBrace = false;
-          for (let k = lineIdx; k < Math.min(lines.length, lineIdx + 6); k++) {
-            if (lines[k].includes('{')) {
-              foundBrace = true;
-              break;
-            }
-            if (lines[k].includes(';')) break;
-          }
+    while (lineIdx < cleanLines.length) {
+      const line = cleanLines[lineIdx];
 
-          if (foundBrace) {
-            const ctx = extractCFunctionContext(lines, lineIdx, languageId);
-            if (ctx.isEnclosing && ctx.functionName) {
-              functions.push(ctx);
-              lineIdx = ctx.endLine + 1;
-              continue;
+      // Match C/C++ function signature: identifier before (
+      const match = line.match(/(?:^|[\s*&])([a-zA-Z_]\w*(?:::[a-zA-Z_]\w*)*)\s*\([^;{()]*\)\s*(?:\{|\s*$)/);
+      if (match) {
+        const rawName = match[1];
+        const nameParts = rawName.split('::');
+        const candidateName = nameParts[nameParts.length - 1];
+
+        if (!C_KEYWORDS.has(candidateName) && !C_KEYWORDS.has(rawName)) {
+          if (!onlyStripped || isStrippedFunctionName(candidateName)) {
+            let foundBrace = false;
+            for (let k = lineIdx; k < Math.min(cleanLines.length, lineIdx + 8); k++) {
+              if (cleanLines[k].includes('{')) {
+                foundBrace = true;
+                break;
+              }
+              if (cleanLines[k].includes(';')) break;
+            }
+
+            if (foundBrace) {
+              const ctx = extractCFunctionContext(lines, lineIdx, languageId, undefined, undefined, cleanLines);
+              if (ctx.isEnclosing && ctx.functionName) {
+                functions.push(ctx);
+                lineIdx = ctx.endLine + 1;
+                continue;
+              }
             }
           }
         }
@@ -95,7 +205,8 @@ function extractCFunctionContext(
   cursorLine: number,
   languageId: string,
   selectionStart?: number,
-  selectionEnd?: number
+  selectionEnd?: number,
+  providedCleanLines?: string[]
 ): ExtractedContext {
   // If user provided a multi-line selection that already has balanced braces, use it directly
   if (
@@ -120,19 +231,21 @@ function extractCFunctionContext(
     }
   }
 
-  // Scan upwards to find the function header with opening brace '{'
+  const cleanLines = providedCleanLines || stripCommentsFromLines(lines);
+
+  // Scan upwards in cleanLines to find the function header
   let headerLine = -1;
   let funcName = '';
   const searchLimit = Math.max(0, cursorLine - 300);
 
   for (let i = cursorLine; i >= searchLimit; i--) {
-    const line = lines[i];
-    // Check if line contains function declaration/definition
-    // e.g. int func_name(...) { or void func_name(...)
-    const match = line.match(/(?:^|\s+)([a-zA-Z_]\w*)\s*\([^;{()]*\)\s*(?:\{|\s*$)/);
+    const line = cleanLines[i];
+    const match = line.match(/(?:^|[\s*&])([a-zA-Z_]\w*(?:::[a-zA-Z_]\w*)*)\s*\([^;{()]*\)\s*(?:\{|\s*$)/);
     if (match) {
-      const candidateName = match[1];
-      if (!C_KEYWORDS.has(candidateName)) {
+      const rawName = match[1];
+      const nameParts = rawName.split('::');
+      const candidateName = nameParts[nameParts.length - 1];
+      if (!C_KEYWORDS.has(candidateName) && !C_KEYWORDS.has(rawName)) {
         headerLine = i;
         funcName = candidateName;
         break;
@@ -160,15 +273,15 @@ function extractCFunctionContext(
   let openBraceLine = -1;
   let openBraceCol = -1;
 
-  for (let i = headerLine; i < lines.length; i++) {
-    const col = lines[i].indexOf('{');
+  for (let i = headerLine; i < cleanLines.length; i++) {
+    const col = cleanLines[i].indexOf('{');
     if (col !== -1) {
       openBraceLine = i;
       openBraceCol = col;
       break;
     }
     // If we hit a semicolon before an opening brace, it's just a prototype, not definition
-    if (lines[i].includes(';')) {
+    if (cleanLines[i].includes(';')) {
       break;
     }
   }
@@ -187,31 +300,8 @@ function extractCFunctionContext(
     };
   }
 
-  // Count braces forward to find endLine
-  let braceDepth = 0;
-  let endLine = openBraceLine;
-
-  for (let i = openBraceLine; i < lines.length; i++) {
-    const line = lines[i];
-    const startCol = (i === openBraceLine) ? openBraceCol : 0;
-
-    for (let c = startCol; c < line.length; c++) {
-      const char = line[c];
-      if (char === '{') {
-        braceDepth++;
-      } else if (char === '}') {
-        braceDepth--;
-        if (braceDepth === 0) {
-          endLine = i;
-          break;
-        }
-      }
-    }
-
-    if (braceDepth === 0) {
-      break;
-    }
-  }
+  // Count braces forward to find endLine using comment-safe, string-safe counter
+  const endLine = findMatchingBraceEnd(lines, openBraceLine, openBraceCol);
 
   const enclosingCode = lines.slice(headerLine, endLine + 1).join('\n');
   const callees = extractCalleesFromCode(enclosingCode, lines, funcName);

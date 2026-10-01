@@ -56,5 +56,20 @@ describe('Real-World Reverse Engineering Fixture: night_cipher_game_c.c', () => 
     expect(names.some(n => n?.startsWith('FUN_'))).toBe(true);
   });
 
+  it('scans all functions (onlyStripped = false) in nightfall_keymaster_c.c', () => {
+    const keymasterPath = path.resolve(__dirname, '../../assets/nightfall_keymaster_c.c');
+    const content = fs.readFileSync(keymasterPath, 'utf-8');
+    const lines = content.split(/\r?\n/);
+
+    const allFuncs = extractAllFunctionsInDocument(lines, 'c', false);
+    const names = allFuncs.map(f => f.functionName);
+    expect(names).toContain('verify_key_and_generate_token');
+    expect(names).toContain('FUN_00101020');
+    expect(names).toContain('FUN_00101130');
+    expect(names).not.toContain('Agent');
+    expect(names).not.toContain('catch');
+    expect(allFuncs.length).toBeGreaterThanOrEqual(40);
+  });
+
 });
 

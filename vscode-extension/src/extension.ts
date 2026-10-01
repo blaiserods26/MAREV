@@ -14,7 +14,37 @@ import { loadWorkspaceEnv } from './envLoader';
 let sidebarProvider: MarevSidebarProvider | undefined;
 let lastActiveEditor: vscode.TextEditor | undefined = vscode.window.activeTextEditor;
 
+function isTargetDocument(doc?: vscode.TextDocument): boolean {
+  if (!doc) return false;
+  const lang = doc.languageId.toLowerCase();
+  const file = doc.fileName.toLowerCase();
+  return (
+    lang === 'c' ||
+    lang === 'cpp' ||
+    lang.includes('asm') ||
+    lang.includes('assembly') ||
+    file.endsWith('.c') ||
+    file.endsWith('.cpp') ||
+    file.endsWith('.cc') ||
+    file.endsWith('.cxx') ||
+    file.endsWith('.h') ||
+    file.endsWith('.hpp') ||
+    file.endsWith('.s') ||
+    file.endsWith('.asm')
+  );
+}
+
 function getTargetEditor(): vscode.TextEditor | undefined {
+  if (vscode.window.activeTextEditor && isTargetDocument(vscode.window.activeTextEditor.document)) {
+    return vscode.window.activeTextEditor;
+  }
+  if (lastActiveEditor && !lastActiveEditor.document.isClosed && isTargetDocument(lastActiveEditor.document)) {
+    return lastActiveEditor;
+  }
+  const visibleTarget = vscode.window.visibleTextEditors.find((e) => isTargetDocument(e.document));
+  if (visibleTarget) {
+    return visibleTarget;
+  }
   if (vscode.window.activeTextEditor) {
     return vscode.window.activeTextEditor;
   }
@@ -124,38 +154,49 @@ export function activate(context: vscode.ExtensionContext) {
   };
 
   const onScanFile = async (onlyStripped: boolean): Promise<BatchFunctionCandidate[]> => {
-    const editor = getTargetEditor();
-    if (!editor) {
-      vscode.window.showWarningMessage('MAREV: No active or visible editor open to scan.');
-      return [];
+    sidebarProvider?.setBatchScanning(true);
+    try {
+      const editor = getTargetEditor();
+      if (!editor) {
+        vscode.window.showWarningMessage('MAREV: No active or visible editor open to scan.');
+        sidebarProvider?.setBatchScanning(false);
+        return [];
+      }
+
+      const doc = editor.document;
+      const lines = doc.getText().split(/\r?\n/);
+      const functions = extractAllFunctionsInDocument(lines, doc.languageId, onlyStripped);
+
+      const pathParts = doc.fileName.split(/[\\/]/);
+      const fileName = pathParts[pathParts.length - 1];
+
+      const candidates: BatchFunctionCandidate[] = functions.map((f, i) => ({
+        id: `cand-${i}-${f.functionName || 'fn'}`,
+        originalName: f.functionName || `sub_${i}`,
+        predictedName: f.functionName || `sub_${i}`,
+        context: f,
+        selected: true,
+        status: 'pending'
+      }));
+
+      sidebarProvider?.setBatchCandidates(candidates, fileName, onlyStripped);
+
+      if (candidates.length === 0) {
+        vscode.window.showInformationMessage(
+          onlyStripped
+            ? `MAREV: No stripped/generic functions found in ${fileName}. (Try unchecking 'Only scan stripped')`
+            : `MAREV: No function declarations found in ${fileName}.`
+        );
+      } else {
+        vscode.window.showInformationMessage(
+          `MAREV: Found ${candidates.length} functions in ${fileName}.`
+        );
+      }
+
+      return candidates;
+    } finally {
+      sidebarProvider?.setBatchScanning(false);
     }
-
-    const doc = editor.document;
-    const lines = doc.getText().split(/\r?\n/);
-    const functions = extractAllFunctionsInDocument(lines, doc.languageId, onlyStripped);
-
-    if (functions.length === 0) {
-      vscode.window.showInformationMessage(
-        onlyStripped
-          ? 'MAREV: No stripped/generic functions found in active document.'
-          : 'MAREV: No function declarations found in active document.'
-      );
-    }
-
-    const candidates: BatchFunctionCandidate[] = functions.map((f, i) => ({
-      id: `cand-${i}-${f.functionName || 'fn'}`,
-      originalName: f.functionName || `sub_${i}`,
-      predictedName: f.functionName || `sub_${i}`,
-      context: f,
-      selected: true,
-      status: 'pending'
-    }));
-
-    const pathParts = doc.fileName.split(/[\\/]/);
-    const fileName = pathParts[pathParts.length - 1];
-
-    sidebarProvider?.setBatchCandidates(candidates, fileName);
-    return candidates;
   };
 
   const onRunBatchAnalysis = async (candidateIds?: string[]) => {
@@ -357,8 +398,8 @@ export function activate(context: vscode.ExtensionContext) {
   // Command: Scan Complete File for Functions
   context.subscriptions.push(
     vscode.commands.registerCommand('marev.scanFile', async () => {
-      await onScanFile(true);
       await vscode.commands.executeCommand('marev.sidebar.focus');
+      await onScanFile(true);
     })
   );
 }

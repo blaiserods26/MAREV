@@ -96,5 +96,44 @@ int sub_401100(char* buf) {
     expect(stripped).toHaveLength(2);
     expect(stripped.map(f => f.functionName)).toEqual(['FUN_00102020', 'sub_401100']);
   });
+
+  it('correctly ignores comments with function-like text and C++ catch blocks', () => {
+    const cSource = `
+/**
+ * @brief Test doc
+ * @note Recovered via MAREV AI Agent (95% confidence, VALIDATION)
+ */
+undefined8 FUN_00101170(int param_1, long param_2)
+{
+    if (param_1 < 2) {
+        return 0;
+    }
+    try {
+        doSomething();
+    } catch (std::exception &e) {
+        return 1;
+    }
+    return 2;
+}
+
+// Another comment mentioning helper(1, 2)
+void FUN_00101180(void)
+{
+    return;
+}
+`;
+    const lines = cSource.split('\n');
+    const stripped = extractAllFunctionsInDocument(lines, 'c', true);
+    const names = stripped.map(f => f.functionName);
+    expect(names).toEqual(['FUN_00101170', 'FUN_00101180']);
+    expect(names).not.toContain('Agent');
+    expect(names).not.toContain('catch');
+
+    const all = extractAllFunctionsInDocument(lines, 'c', false);
+    const allNames = all.map(f => f.functionName);
+    expect(allNames).not.toContain('Agent');
+    expect(allNames).not.toContain('catch');
+    expect(allNames).toContain('FUN_00101170');
+  });
 });
 

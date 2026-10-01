@@ -11,10 +11,11 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
   private _isLoading = false;
   private _errorMessage?: string;
 
-  private _batchCandidates: BatchFunctionCandidate[] = [];
   private _batchDocName = '';
   private _batchProgress = { completed: 0, total: 0, currentFunc: '' };
   private _isBatchRunning = false;
+  private _isScanning = false;
+  private _onlyStripped = true;
   private _activeTab: 'single' | 'batch' = 'single';
 
   constructor(
@@ -45,9 +46,14 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
     };
 
     webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+    this._updateWebview();
 
     webviewView.webview.onDidReceiveMessage(async (data) => {
       switch (data.type) {
+        case 'webviewReady': {
+          this._updateWebview();
+          break;
+        }
         case 'setTab': {
           this._activeTab = data.tab;
           break;
@@ -156,10 +162,20 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
     this._updateWebview();
   }
 
-  public setBatchCandidates(candidates: BatchFunctionCandidate[], docName: string) {
+  public setBatchScanning(isScanning: boolean) {
+    this._isScanning = isScanning;
+    this._view?.webview.postMessage({
+      type: 'updateScanStatus',
+      isScanning
+    });
+  }
+
+  public setBatchCandidates(candidates: BatchFunctionCandidate[], docName: string, onlyStripped = true) {
     this._batchCandidates = candidates;
     this._batchDocName = docName;
+    this._onlyStripped = onlyStripped;
     this._activeTab = 'batch';
+    this._isScanning = false;
     this._isBatchRunning = false;
     this._batchProgress = { completed: 0, total: candidates.length, currentFunc: '' };
     this._updateWebview();
@@ -195,6 +211,7 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
     this._errorMessage = error;
     this._isLoading = false;
     this._isBatchRunning = false;
+    this._isScanning = false;
     this._updateWebview();
   }
 
@@ -210,7 +227,9 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
         batchCandidates: this._batchCandidates,
         batchDocName: this._batchDocName,
         batchProgress: this._batchProgress,
-        isBatchRunning: this._isBatchRunning
+        isBatchRunning: this._isBatchRunning,
+        isScanning: this._isScanning,
+        onlyStripped: this._onlyStripped
       });
     }
   }
@@ -634,10 +653,10 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
     let batchCandidates = [];
 
     // Tab Switching
-    tabSingle.addEventListener('click', () => switchTab('single'));
-    tabBatch.addEventListener('click', () => switchTab('batch'));
+    tabSingle.addEventListener('click', () => switchTab('single', true));
+    tabBatch.addEventListener('click', () => switchTab('batch', true));
 
-    function switchTab(tab) {
+    function switchTab(tab, userInitiated = false) {
       if (tab === 'single') {
         tabSingle.classList.add('active');
         tabBatch.classList.remove('active');
@@ -648,30 +667,36 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
         tabSingle.classList.remove('active');
         singleView.style.display = 'none';
         batchView.style.display = 'block';
-        if (!batchCandidates || batchCandidates.length === 0) {
-          vscode.postMessage({
-            type: 'scanFile',
-            onlyStripped: onlyStrippedCheck.checked
-          });
+        if (userInitiated && (!batchCandidates || batchCandidates.length === 0)) {
+          triggerScan();
         }
       }
-      vscode.postMessage({ type: 'setTab', tab });
+      if (userInitiated) {
+        vscode.postMessage({ type: 'setTab', tab });
+      }
     }
 
-    openSettingsBtn.addEventListener('click', () => {
-      vscode.postMessage({ type: 'openSettings' });
-    });
-
-    analyzeBtn.addEventListener('click', () => {
-      vscode.postMessage({ type: 'triggerAnalysis' });
-    });
-
-    scanDocumentBtn.addEventListener('click', () => {
+    function triggerScan() {
+      setScanningUI(true);
       vscode.postMessage({
         type: 'scanFile',
         onlyStripped: onlyStrippedCheck.checked
       });
+    }
+
+    scanDocumentBtn.addEventListener('click', () => {
+      triggerScan();
     });
+
+    function setScanningUI(scanning) {
+      if (scanning) {
+        scanDocumentBtn.disabled = true;
+        scanDocumentBtn.innerHTML = '<span class="spinner" style="width:12px;height:12px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:6px;"></span> <span>Scanning File for Functions...</span>';
+      } else {
+        scanDocumentBtn.disabled = false;
+        scanDocumentBtn.innerHTML = '🔍 Find All Functions in File';
+      }
+    }
 
     startBatchAgentBtn.addEventListener('click', () => {
       const selectedIds = batchCandidates.filter(c => c.selected !== false).map(c => c.id);
@@ -721,6 +746,9 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
         case 'setLoading':
           setLoadingUI(message.loading, message.message);
           break;
+        case 'updateScanStatus':
+          setScanningUI(message.isScanning);
+          break;
         case 'updateState':
           renderState(message);
           break;
@@ -769,8 +797,10 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
       batchCandidates = state.batchCandidates || [];
 
       if (state.activeTab) {
-        switchTab(state.activeTab);
+        switchTab(state.activeTab, false);
       }
+
+      setScanningUI(Boolean(state.isScanning));
 
       // Handle Errors
       if (state.errorMessage) {
@@ -811,7 +841,25 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
       if (batchCandidates.length > 0) {
         batchResultsSection.style.display = 'block';
         batchFoundCount.textContent = batchCandidates.length + ' Candidates (' + (state.batchDocName || 'file') + ')';
+        startBatchAgentBtn.style.display = 'block';
+        applyBatchBtn.parentElement.style.display = 'block';
         renderCandidates();
+      } else if (state.batchDocName && !state.isScanning) {
+        batchResultsSection.style.display = 'block';
+        batchFoundCount.textContent = '0 Candidates (' + state.batchDocName + ')';
+        candidatesList.innerHTML = \`
+          <div class="card" style="margin-top: 10px; background: rgba(30, 41, 59, 0.5); border-style: dashed; text-align: center; padding: 16px 12px;">
+            <div style="font-weight: 600; font-size: 13px; color: var(--text-main); margin-bottom: 6px;">0 functions found in \${escapeHtml(state.batchDocName)}</div>
+            <div style="font-size: 11px; color: var(--text-muted); line-height: 1.4;">
+              \${state.onlyStripped !== false
+                ? 'Only stripped/unnamed routines (FUN_*, sub_*) were scanned.<br><span style="color: var(--accent); font-weight: 500;">Tip: Uncheck "Only scan stripped" above to find all function declarations.</span>'
+                : 'No function declarations were detected in the file.'
+              }
+            </div>
+          </div>
+        \`;
+        startBatchAgentBtn.style.display = 'none';
+        applyBatchBtn.parentElement.style.display = 'none';
       } else {
         batchResultsSection.style.display = 'none';
       }
@@ -1009,6 +1057,9 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
     }
+
+    // Handshake: notify extension that webview is ready
+    vscode.postMessage({ type: 'webviewReady' });
   </script>
 </body>
 </html>`;
