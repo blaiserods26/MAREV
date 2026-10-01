@@ -52,7 +52,9 @@ describe('Real-World Reverse Engineering Fixture: night_cipher_game_c.c', () => 
     expect(strippedFuncs.length).toBeGreaterThan(0);
     // Should detect FUN_ functions like FUN_00102020 or FUN_00101170 (if present)
     const names = strippedFuncs.map(f => f.functionName);
+    console.log('Stripped funcs found in nightfall_keymaster_c.c:', names);
     expect(names.some(n => n?.startsWith('FUN_'))).toBe(true);
   });
+
 });
 

@@ -22,10 +22,15 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
     private readonly _onRunAnalysis: (context: ExtractedContext) => Promise<void>,
     private readonly _onRename: (signature: RecoveredSignature, context: ExtractedContext) => Promise<void>,
     private readonly _onInsertDoc: (signature: RecoveredSignature, context: ExtractedContext) => Promise<void>,
-    private readonly _onScanFile: (onlyStripped: boolean) => Promise<void>,
-    private readonly _onRunBatchAnalysis: (candidates: BatchFunctionCandidate[]) => Promise<void>,
+    private readonly _onScanFile: (onlyStripped: boolean) => Promise<BatchFunctionCandidate[] | void>,
+    private readonly _onRunBatchAnalysis: (candidateIds?: string[]) => Promise<void>,
     private readonly _onApplyBatchRenames: (items: BatchRenameItem[]) => Promise<void>
   ) {}
+
+  public getBatchCandidates(): BatchFunctionCandidate[] {
+    return this._batchCandidates;
+  }
+
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -79,8 +84,12 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'triggerBatchAnalysis': {
-          if (this._batchCandidates.length > 0) {
-            await this._onRunBatchAnalysis(this._batchCandidates);
+          await this._onRunBatchAnalysis(data.candidateIds);
+          break;
+        }
+        case 'batchSelectionUpdated': {
+          for (const c of this._batchCandidates) {
+            c.selected = Boolean(data.allSelected);
           }
           break;
         }
@@ -639,6 +648,12 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
         tabSingle.classList.remove('active');
         singleView.style.display = 'none';
         batchView.style.display = 'block';
+        if (!batchCandidates || batchCandidates.length === 0) {
+          vscode.postMessage({
+            type: 'scanFile',
+            onlyStripped: onlyStrippedCheck.checked
+          });
+        }
       }
       vscode.postMessage({ type: 'setTab', tab });
     }
@@ -659,17 +674,23 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
     });
 
     startBatchAgentBtn.addEventListener('click', () => {
-      vscode.postMessage({ type: 'triggerBatchAnalysis' });
+      const selectedIds = batchCandidates.filter(c => c.selected !== false).map(c => c.id);
+      vscode.postMessage({
+        type: 'triggerBatchAnalysis',
+        candidateIds: selectedIds
+      });
     });
 
     selectAllBtn.addEventListener('click', () => {
       batchCandidates.forEach(c => c.selected = true);
       renderCandidates();
+      vscode.postMessage({ type: 'batchSelectionUpdated', allSelected: true });
     });
 
     deselectAllBtn.addEventListener('click', () => {
       batchCandidates.forEach(c => c.selected = false);
       renderCandidates();
+      vscode.postMessage({ type: 'batchSelectionUpdated', allSelected: false });
     });
 
     applyBatchBtn.addEventListener('click', () => {
@@ -838,6 +859,12 @@ export class MarevSidebarProvider implements vscode.WebviewViewProvider {
             \${cand.signature?.summary ? \`
               <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.3;">
                 \${escapeHtml(cand.signature.summary)}
+              </div>
+            \` : ''}
+
+            \${cand.error ? \`
+              <div style="font-size: 11px; color: #fca5a5; margin-top: 6px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); padding: 5px 8px; border-radius: 4px; word-break: break-word;">
+                <strong>Error:</strong> \${escapeHtml(cand.error)}
               </div>
             \` : ''}
 
