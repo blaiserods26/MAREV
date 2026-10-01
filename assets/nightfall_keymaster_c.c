@@ -190,7 +190,15 @@ void FUN_00101130(void)
 }
 
 
-undefined8 FUN_00101170(int param_1,long param_2)
+/**
+ * @brief This function acts as a keymaster, validating a user-provided command-line key against an internal secret. If the key is valid, it decrypts and displays a 'mission token'. The validation involves a series of XOR operations and PRNG-based transformations on both the input key and a hardcoded secret, followed by a comparison of their processed forms.
+ *
+ * @param argc The number of command-line arguments provided to the program.
+ * @param argv An array of strings representing the command-line arguments, where argv[1] is expected to be the user's key.
+ * @return int
+ * @note Recovered via MAREV AI Agent (95% confidence, VALIDATION)
+ */
+undefined8 verify_key_and_generate_token(int param_1,long param_2)
 
 {
   byte bVar1;
@@ -387,7 +395,7 @@ void processEntry entry(undefined8 param_1,undefined8 param_2)
   undefined1 auStack_8 [8];
   
   (*(code *)PTR___libc_start_main_00103fc0)
-            (FUN_00101170,param_2,&stack0x00000008,0,0,param_1,auStack_8);
+            (verify_key_and_generate_token,param_2,&stack0x00000008,0,0,param_1,auStack_8);
   do {
                     /* WARNING: Do nothing block with infinite loop */
   } while( true );
